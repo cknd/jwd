@@ -27,3 +27,9 @@ export function loadCache(storageKey) {
 export function saveCache(storageKey, value) {
   window.localStorage.setItem(storageKey, JSON.stringify(value));
 }
+
+export function clearLocalStorageData() {
+  Object.values(STORAGE_KEYS).forEach((storageKey) => {
+    window.localStorage.removeItem(storageKey);
+  });
+}

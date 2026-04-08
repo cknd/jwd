@@ -1,9 +1,8 @@
 let googlePromise;
 let loadedKey = null;
 
-export async function loadGoogleMapsApi({ googleMapsApiKey, googleMapId }) {
+export async function loadGoogleMapsApi({ googleMapsApiKey }) {
   const apiKey = googleMapsApiKey;
-  const mapId = googleMapId;
   if (!apiKey) {
     throw new Error("Missing Google Maps API key.");
   }
@@ -14,7 +13,7 @@ export async function loadGoogleMapsApi({ googleMapsApiKey, googleMapId }) {
 
   if (!googlePromise || (loadedKey && loadedKey !== apiKey)) {
     loadedKey = apiKey;
-    googlePromise = loadScript({ apiKey, mapId });
+    googlePromise = loadScript({ apiKey });
   }
 
   try {
@@ -27,7 +26,7 @@ export async function loadGoogleMapsApi({ googleMapsApiKey, googleMapId }) {
   return window.google;
 }
 
-function loadScript({ apiKey, mapId }) {
+function loadScript({ apiKey }) {
   return new Promise((resolve, reject) => {
     if (window.google?.maps?.importLibrary) {
       resolve();
@@ -53,10 +52,6 @@ function loadScript({ apiKey, mapId }) {
       loading: "async",
       callback: callbackName,
     });
-
-    if (mapId) {
-      params.set("map_ids", mapId);
-    }
 
     const script = document.createElement("script");
     script.dataset.googleMapsLoader = "true";

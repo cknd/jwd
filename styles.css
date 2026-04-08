@@ -496,6 +496,14 @@ textarea {
   line-height: 1.45;
 }
 
+.dialog-note--required {
+  margin-top: 0;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(38, 92, 75, 0.18);
+  background: rgba(38, 92, 75, 0.06);
+  color: var(--accent-strong);
+}
+
 .map-status,
 .comparison-status,
 .message-bar,

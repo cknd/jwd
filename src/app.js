@@ -11,7 +11,7 @@ import {
   createPreset,
   sanitizeBoardState,
 } from "./state.js";
-import { loadBoardState, loadRuntimeConfig, saveBoardState, saveRuntimeConfig } from "./storage.js";
+import { clearLocalStorageData, loadBoardState, loadRuntimeConfig, saveBoardState, saveRuntimeConfig } from "./storage.js";
 import { debounce, escapeHtml, pickNextHomeColorIndex, serializeError } from "./utils.js";
 
 const elements = captureElements();
@@ -46,6 +46,7 @@ let searchFeedback = {
   home: "",
   destination: "",
 };
+let hasPromptedForApiKey = false;
 
 initialize();
 
@@ -54,6 +55,7 @@ async function initialize() {
     await hydrateBoardState();
     bindGlobalEvents();
     renderAll();
+    maybePromptForApiKey();
     await ensureMapProvider();
     await recomputeComparisons();
   } catch (error) {
@@ -159,9 +161,15 @@ function bindGlobalEvents() {
   });
 
   elements.saveSettingsButton.addEventListener("click", async () => {
+    const apiKey = elements.apiKeyInput.value.trim();
+    if (!apiKey) {
+      elements.settingsRequiredNote.classList.remove("is-hidden");
+      elements.apiKeyInput.focus();
+      return;
+    }
+
     runtimeConfig = {
-      googleMapsApiKey: elements.apiKeyInput.value.trim(),
-      googleMapId: elements.mapIdInput.value.trim(),
+      googleMapsApiKey: apiKey,
     };
 
     saveRuntimeConfig(runtimeConfig);
@@ -174,6 +182,27 @@ function bindGlobalEvents() {
 
   elements.cancelSettingsButton.addEventListener("click", () => {
     elements.settingsDialog.close();
+  });
+
+  elements.clearLocalStorageButton.addEventListener("click", async () => {
+    clearLocalStorageData();
+    runtimeConfig = {
+      ...window.JWD_CONFIG,
+    };
+    boardState = createDefaultBoardState();
+    comparisonSnapshot = emptySnapshot();
+    highlightedCell = null;
+    tableFocus = null;
+    pendingDelete = null;
+    resetComposer();
+    elements.settingsDialog.close();
+    provider = null;
+    mapReady = false;
+    renderAll();
+    maybePromptForApiKey(true);
+    await ensureMapProvider();
+    await recomputeComparisons();
+    setMessage("Deleted local storage and reset the local board.", "");
   });
 
   elements.copyShareLinkButton.addEventListener("click", async () => {
@@ -693,9 +722,20 @@ function submitDynamicDestination() {
 }
 
 function openSettings() {
+  const needsApiKey = !runtimeConfig.googleMapsApiKey;
   elements.apiKeyInput.value = runtimeConfig.googleMapsApiKey || "";
-  elements.mapIdInput.value = runtimeConfig.googleMapId || "";
+  elements.settingsRequiredNote.classList.toggle("is-hidden", !needsApiKey);
   elements.settingsDialog.showModal();
+  window.setTimeout(() => elements.apiKeyInput.focus(), 0);
+}
+
+function maybePromptForApiKey(force = false) {
+  if (runtimeConfig.googleMapsApiKey || (!force && hasPromptedForApiKey)) {
+    return;
+  }
+
+  hasPromptedForApiKey = true;
+  openSettings();
 }
 
 async function openShareDialog() {
@@ -1116,8 +1156,9 @@ function captureElements() {
     comparisonGraphContainer: document.querySelector("#comparison-graph-container"),
     comparisonFootnote: document.querySelector("#comparison-footnote"),
     settingsDialog: document.querySelector("#settings-dialog"),
+    settingsRequiredNote: document.querySelector("#settings-required-note"),
     apiKeyInput: document.querySelector("#api-key-input"),
-    mapIdInput: document.querySelector("#map-id-input"),
+    clearLocalStorageButton: document.querySelector("#clear-local-storage-button"),
     saveSettingsButton: document.querySelector("#save-settings-button"),
     cancelSettingsButton: document.querySelector("#cancel-settings-button"),
     shareDialog: document.querySelector("#share-dialog"),

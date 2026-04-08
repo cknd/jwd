@@ -57,14 +57,14 @@ export function renderComparison(elements, boardState, snapshot, highlightedCell
 
   elements.comparisonStatus.textContent =
     homeCount === 0 && destinationCount === 0
-      ? "Start by adding a location row or a Point of Interest column."
+      ? "Start by adding a location or a Point of Interest."
       : homeCount === 0
-        ? "Add at least one location row to compare travel times."
+        ? "Add at least one location to compare travel times."
         : destinationCount === 0
-          ? "Add at least one Point of Interest column to compare travel times."
+          ? "Add at least one Point of Interest to compare travel times."
           : "";
   elements.comparisonFootnote.textContent = snapshot.computedAt
-    ? `Google Maps Platform. Computed at ${formatTimestamp(snapshot.computedAt)}.`
+    ? `Times computed via Google Maps API at ${formatTimestamp(snapshot.computedAt)}.`
     : "";
 
   elements.comparisonTableContainer.innerHTML = buildTableMarkup(
