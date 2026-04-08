@@ -31,16 +31,6 @@
 
       <main class="workspace">
         <section class="map-pane">
-          <div id="map-pick-bar" class="map-pick-bar is-hidden" aria-live="polite">
-            <div class="map-pick-copy">
-              <strong id="map-pick-title"></strong>
-              <div id="map-pick-detail" class="map-pick-detail"></div>
-            </div>
-            <div class="map-pick-actions">
-              <button id="map-pick-confirm-button" class="primary-button" type="button">Confirm</button>
-              <button id="map-pick-cancel-button" class="secondary-button" type="button">Cancel</button>
-            </div>
-          </div>
           <div id="map-status" class="map-status">
             Enter a Google Maps API key in Settings or edit <code>config.js</code> to load the map.
           </div>
@@ -48,27 +38,33 @@
         </section>
 
         <section class="panel-section comparison-pane">
+          <div class="comparison-toolbar">
           <div class="comparison-controls">
+            <div class="location-composer-launchers">
+              <button id="activate-place-button" class="secondary-button" type="button">Add Candidate Location</button>
+              <button id="activate-destination-button" class="secondary-button" type="button">Add Point of Interest</button>
+            </div>
             <div class="comparison-filters">
               <label class="field compact-field">
-                <span>Mode</span>
-                <select id="mode-select"></select>
+                <span></span>
+                <select id="mode-select" aria-label="Travel mode"></select>
               </label>
               <div class="preset-cluster">
                 <label class="field compact-field">
-                  <span>When are you traveling</span>
-                  <select id="preset-select"></select>
+                  <span></span>
+                  <select id="preset-select" aria-label="When are you traveling"></select>
                 </label>
                 <label class="field compact-field direction-field">
-                  <span>Direction</span>
-                  <div class="direction-switch-wrap">
-                    <span class="direction-switch-label">Destinations -&gt; place</span>
-                    <button id="direction-toggle" class="direction-switch" type="button" role="switch" aria-checked="false" aria-label="Toggle travel direction">
-                      <span class="direction-switch-track">
-                        <span class="direction-switch-thumb"></span>
-                      </span>
+                  <div class="direction-arrow-wrap">
+                    <span class="direction-inline-label">Travel direction:</span>
+                    <span class="direction-endpoint-label">Location</span>
+                    <button id="direction-toggle" class="direction-arrow-button" type="button" aria-label="Reverse travel direction">
+                      <svg class="direction-arrow-icon" viewBox="0 0 48 24" aria-hidden="true" focusable="false">
+                        <path d="M4 12h34"></path>
+                        <path d="M28 4l10 8-10 8"></path>
+                      </svg>
                     </button>
-                    <span class="direction-switch-label">Place -&gt; destinations</span>
+                    <span class="direction-endpoint-label">Points of Interest</span>
                   </div>
                 </label>
               </div>
@@ -99,7 +95,63 @@
               </div>
             </div>
           </div>
-          <div id="comparison-status" class="comparison-status">Start by adding a place row or a destination column.</div>
+            <section id="location-composer" class="location-composer is-hidden" aria-label="Add locations and points of interest">
+              <div id="location-composer-body" class="location-composer-body">
+                <div id="composer-empty-state" class="composer-empty-state">
+                  Choose whether to add a candidate location or a point of interest.
+                </div>
+
+                <div id="composer-edit-panel" class="composer-edit-panel is-hidden">
+                  <div class="composer-edit-grid">
+                    <label id="composer-kind-field" class="field composer-kind-field is-hidden">
+                      <span></span>
+                      <select id="composer-kind-select" aria-label="Point of Interest type">
+                        <option value="FIXED">Fixed address</option>
+                        <option value="DYNAMIC">Find near location</option>
+                      </select>
+                    </label>
+
+                    <label class="field composer-input-field">
+                      <span id="composer-input-label"></span>
+                      <input id="composer-input" type="text" autocomplete="off" placeholder="" aria-label="Location or Point of Interest input">
+                    </label>
+
+                    <label id="composer-name-field" class="field composer-name-field">
+                      <span></span>
+                      <input id="composer-name-input" type="text" autocomplete="off" placeholder="optional name" aria-label="Optional custom name">
+                    </label>
+
+                    <label id="composer-count-field" class="field composer-count-field is-hidden">
+                      <span>Find closest</span>
+                      <input id="composer-count-input" type="number" min="1" max="10" value="3">
+                    </label>
+
+                    <div class="composer-inline-actions">
+                      <button id="composer-map-button" class="secondary-button" type="button">Select on map</button>
+                    </div>
+                  </div>
+                  <div class="composer-submit-actions">
+                    <button id="composer-add-button" class="primary-button" type="button">Add</button>
+                    <button id="composer-cancel-button" class="secondary-button" type="button">Cancel</button>
+                  </div>
+                  <div id="composer-help" class="composer-help"></div>
+                  <ul id="composer-search-results" class="search-results is-hidden"></ul>
+                </div>
+
+                <div id="composer-map-panel" class="composer-map-panel is-hidden" aria-live="polite">
+                  <div class="composer-map-copy">
+                    <strong id="composer-map-title"></strong>
+                    <div id="composer-map-detail" class="composer-map-detail"></div>
+                  </div>
+                  <div class="composer-inline-actions">
+                    <button id="composer-map-confirm-button" class="primary-button" type="button">Confirm</button>
+                    <button id="composer-map-cancel-button" class="secondary-button" type="button">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div id="comparison-status" class="comparison-status">Start by adding a location row or a Point of Interest column.</div>
           <div id="comparison-table-container" class="comparison-table-container"></div>
           <div id="comparison-graph-container" class="comparison-graph-container"></div>
           <div class="comparison-footer">
@@ -108,80 +160,17 @@
         </section>
       </main>
 
-      <dialog id="home-dialog" class="app-dialog">
-        <form method="dialog" class="dialog-content">
-          <header class="dialog-header">
-            <h2>Add Candidate Place</h2>
-          </header>
-          <label class="field">
-            <span>Address or place</span>
-            <input id="home-search-input" type="text" autocomplete="off" placeholder="Search candidate place">
-          </label>
-          <ul id="home-search-results" class="search-results is-hidden"></ul>
-          <div class="dialog-actions">
-            <button id="select-home-on-map-button" class="secondary-button" type="button">Select on map</button>
-            <button id="add-home-manual-button" class="primary-button" type="button">Add Place</button>
-            <button id="cancel-home-button" class="secondary-button" type="button">Cancel</button>
-          </div>
-        </form>
-      </dialog>
-
-      <dialog id="destination-dialog" class="app-dialog">
-        <form method="dialog" class="dialog-content">
-          <header class="dialog-header">
-            <h2>Add Destination</h2>
-          </header>
-          <label class="field">
-            <span>Destination type</span>
-            <select id="destination-kind-select">
-              <option value="FIXED">Fixed address</option>
-              <option value="DYNAMIC">Dynamic nearby query</option>
-            </select>
-          </label>
-
-          <div id="fixed-destination-fields" class="dialog-mode-fields">
-            <label class="field">
-              <span>Optional label</span>
-              <input id="destination-label-input" type="text" placeholder="Work, School, Family">
-            </label>
-            <label class="field">
-              <span>Address or place</span>
-              <input id="destination-search-input" type="text" autocomplete="off" placeholder="Search destination">
-            </label>
-            <ul id="destination-search-results" class="search-results is-hidden"></ul>
-          </div>
-
-          <div id="dynamic-destination-fields" class="dialog-mode-fields is-hidden">
-            <label class="field">
-              <span>Nearby place type</span>
-              <input id="dynamic-type-input" type="text" list="place-type-suggestions" placeholder="supermarket">
-            </label>
-            <label class="field">
-              <span>How many nearby places</span>
-              <input id="dynamic-count-input" type="number" min="1" max="10" value="3">
-            </label>
-            <p class="dialog-note">Dynamic destinations are labeled directly from the query.</p>
-          </div>
-
-          <datalist id="place-type-suggestions">
-            <option value="supermarket"></option>
-            <option value="restaurant"></option>
-            <option value="primary_school"></option>
-            <option value="secondary_school"></option>
-            <option value="train_station"></option>
-            <option value="subway_station"></option>
-            <option value="park"></option>
-            <option value="pharmacy"></option>
-            <option value="gym"></option>
-          </datalist>
-
-          <div class="dialog-actions">
-            <button id="select-destination-on-map-button" class="secondary-button" type="button">Select on map</button>
-            <button id="add-destination-button" class="primary-button" type="button">Add Destination</button>
-            <button id="cancel-destination-button" class="secondary-button" type="button">Cancel</button>
-          </div>
-        </form>
-      </dialog>
+      <datalist id="place-type-suggestions">
+        <option value="supermarket"></option>
+        <option value="restaurant"></option>
+        <option value="primary_school"></option>
+        <option value="secondary_school"></option>
+        <option value="train_station"></option>
+        <option value="subway_station"></option>
+        <option value="park"></option>
+        <option value="pharmacy"></option>
+        <option value="gym"></option>
+      </datalist>
 
       <dialog id="settings-dialog" class="app-dialog">
         <form method="dialog" class="dialog-content">

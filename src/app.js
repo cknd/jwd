@@ -12,7 +12,7 @@ import {
   sanitizeBoardState,
 } from "./state.js";
 import { loadBoardState, loadRuntimeConfig, saveBoardState, saveRuntimeConfig } from "./storage.js";
-import { debounce, escapeHtml, normalizeDynamicPrimaryType, serializeError } from "./utils.js";
+import { debounce, escapeHtml, pickNextHomeColorIndex, serializeError } from "./utils.js";
 
 const elements = captureElements();
 
@@ -27,6 +27,12 @@ let highlightedCell = null;
 let tableFocus = null;
 let mapReady = false;
 let preserveMapViewport = false;
+let pendingDelete = null;
+let composerState = {
+  target: null,
+  destinationKind: "FIXED",
+  editing: null,
+};
 let activeMapPick = null;
 let selectedPlaces = {
   home: null,
@@ -36,6 +42,10 @@ let searchResults = {
   home: [],
   destination: [],
 };
+let searchFeedback = {
+  home: "",
+  destination: "",
+};
 
 initialize();
 
@@ -43,7 +53,6 @@ async function initialize() {
   try {
     await hydrateBoardState();
     bindGlobalEvents();
-    syncDestinationDialogMode();
     renderAll();
     await ensureMapProvider();
     await recomputeComparisons();
@@ -79,108 +88,60 @@ function bindGlobalEvents() {
     }),
   );
   elements.clearShareButton.addEventListener("click", clearShareHash);
-  elements.openHomeDialogButton?.addEventListener("click", openHomeDialog);
-  elements.openDestinationDialogButton?.addEventListener("click", openDestinationDialog);
   document.addEventListener("click", (event) => {
+    let needsRender = false;
+
     if (!elements.presetMenuPanel.classList.contains("is-hidden")) {
       elements.presetMenuPanel.classList.add("is-hidden");
-      renderAll();
+      needsRender = true;
     }
     hideSearchResults("home");
     hideSearchResults("destination");
+    if (pendingDelete && !(event.target instanceof Element && event.target.closest("[data-delete-control]"))) {
+      pendingDelete = null;
+      needsRender = true;
+    }
     if (shouldClearSelectionOnDocumentClick(event.target)) {
-      clearActiveSelection();
-    }
-  });
-
-  bindLocationSearch("home", elements.homeSearchInput, elements.homeSearchResults, (location) => {
-    selectedPlaces.home = location;
-  });
-  bindLocationSearch("destination", elements.destinationSearchInput, elements.destinationSearchResults, (location) => {
-    selectedPlaces.destination = location;
-  });
-
-  elements.cancelHomeButton.addEventListener("click", () => elements.homeDialog.close());
-  elements.cancelDestinationButton.addEventListener("click", () => elements.destinationDialog.close());
-  elements.destinationKindSelect.addEventListener("change", syncDestinationDialogMode);
-  elements.selectHomeOnMapButton.addEventListener("click", () => startMapPick("home"));
-  elements.selectDestinationOnMapButton.addEventListener("click", () => startMapPick("destination"));
-  elements.mapPickConfirmButton.addEventListener("click", confirmMapPick);
-  elements.mapPickCancelButton.addEventListener("click", cancelMapPick);
-
-  elements.addHomeManualButton.addEventListener("click", () => {
-    if (!provider) {
-      setMessage("Load the map provider first by saving a working API key in Settings.", "warning");
-      return;
-    }
-
-    if (!selectedPlaces.home) {
-      resolveFirstSearchResult("home")
-        .then((location) => {
-          if (!location) {
-            setMessage("Type an address and choose a result, or use Select on map.", "warning");
-            return;
-          }
-
-          addPlace(location);
-          clearSearchSelection("home");
-        })
-        .catch((error) => setMessage(`Place lookup failed: ${serializeError(error)}`, "error"));
-      return;
-    }
-
-    addPlace(selectedPlaces.home);
-    clearSearchSelection("home");
-    elements.homeDialog.close();
-  });
-
-  elements.addDestinationButton.addEventListener("click", () => {
-    if (!provider) {
-      setMessage("Load the map provider first by saving a working API key in Settings.", "warning");
-      return;
-    }
-
-    if (elements.destinationKindSelect.value === "DYNAMIC") {
-      const rawPrimaryType = elements.dynamicTypeInput.value.trim();
-      const primaryType = normalizeDynamicPrimaryType(rawPrimaryType);
-      const count = Number(elements.dynamicCountInput.value);
-      if (!primaryType || !Number.isInteger(count) || count < 1 || count > 10) {
-        setMessage("Provide a supported nearby place type such as supermarket, restaurant, pharmacy, gym, park, train_station, or subway_station, plus a count between 1 and 10.", "warning");
-        return;
+      if (clearActiveSelection({ render: false })) {
+        needsRender = true;
       }
-
-      const label = buildDynamicDestinationLabel(primaryType, count);
-      const dynamicGroup = createDynamicGroup({ label, primaryType, count });
-      updateBoardState({ dynamicGroups: [...boardState.dynamicGroups, dynamicGroup] });
-      clearDestinationDialog();
-      elements.destinationDialog.close();
-      return;
     }
-
-    if (!selectedPlaces.destination) {
-      resolveFirstSearchResult("destination")
-        .then((location) => {
-          if (!location) {
-            setMessage("Type an address and choose a result, or use Select on map.", "warning");
-            return;
-          }
-
-          const label = elements.destinationLabelInput.value.trim() || location.label;
-          addDestination(location, label);
-          clearSearchSelection("destination");
-          elements.destinationLabelInput.value = "";
-          elements.destinationDialog.close();
-        })
-        .catch((error) => setMessage(`Destination lookup failed: ${serializeError(error)}`, "error"));
-      return;
+    if (needsRender) {
+      renderAll();
     }
-
-    const label = elements.destinationLabelInput.value.trim() || selectedPlaces.destination.label;
-    addDestination(selectedPlaces.destination, label);
-    clearSearchSelection("destination");
-    elements.destinationLabelInput.value = "";
-    elements.destinationDialog.close();
   });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+
+    if (activeMapPick || composerState.target) {
+      event.preventDefault();
+      resetComposer();
+    }
+  });
+
+  bindLocationSearch();
+
+  elements.activatePlaceButton.addEventListener("click", () => activateComposer("home"));
+  elements.activateDestinationButton.addEventListener("click", () => activateComposer("destination"));
+  elements.composerKindSelect.addEventListener("change", () => {
+    composerState.destinationKind = elements.composerKindSelect.value;
+    selectedPlaces.destination = null;
+    searchResults.destination = [];
+    applyComposerDefaults();
+    renderComposer();
+  });
+  elements.composerCountInput.addEventListener("input", () => {
+    renderComposer();
+  });
+  elements.composerMapButton.addEventListener("click", () => startMapPick(composerState.target));
+  elements.composerAddButton.addEventListener("click", () => {
+    submitComposer().catch((error) => setMessage(`Add failed: ${serializeError(error)}`, "error"));
+  });
+  elements.composerCancelButton.addEventListener("click", resetComposer);
+  elements.composerMapConfirmButton.addEventListener("click", confirmMapPick);
+  elements.composerMapCancelButton.addEventListener("click", resetComposer);
 
   elements.addPresetButton.addEventListener("click", () => {
     const preset = createPreset({
@@ -321,28 +282,49 @@ function updateBoardState(partialState, options = {}) {
 }
 
 function addPlace(location) {
-  const homes = [...boardState.homes, createHome(location)];
+  const customLabel = elements.composerNameInput.value.trim();
+  const nextLocation = customLabel ? { ...location, label: customLabel } : location;
+  const homes = [createHome(nextLocation, { colorIndex: pickNextHomeColorIndex(boardState.homes) }), ...boardState.homes];
   updateBoardState({
     homes,
-    highlightedHomeId: boardState.highlightedHomeId || homes[0]?.id,
+    highlightedHomeId: homes[0]?.id,
   });
 }
 
 function addDestination(location, label) {
+  const customLabel = elements.composerNameInput.value.trim();
   updateBoardState({
-    fixedDestinations: [...boardState.fixedDestinations, createFixedDestination(location, label)],
+    fixedDestinations: [createFixedDestination(location, customLabel || label), ...boardState.fixedDestinations],
   });
 }
 
-function bindLocationSearch(kind, inputElement, resultsElement, onSelect) {
+function bindLocationSearch() {
   const debouncedSearch = debounce(async () => {
     if (!provider) {
       return;
     }
 
-    const query = inputElement.value.trim();
+    const kind = composerState.target;
+    if (!kind) {
+      return;
+    }
+
+    if (composerState.target !== kind || activeMapPick) {
+      hideSearchResults(kind);
+      return;
+    }
+
+    if (kind === "destination" && composerState.destinationKind === "DYNAMIC") {
+      searchResults[kind] = [];
+      searchFeedback[kind] = "";
+      hideSearchResults(kind);
+      return;
+    }
+
+    const query = elements.composerInput.value.trim();
     if (query.length < 3) {
       searchResults[kind] = [];
+      searchFeedback[kind] = "";
       hideSearchResults(kind);
       return;
     }
@@ -350,49 +332,63 @@ function bindLocationSearch(kind, inputElement, resultsElement, onSelect) {
     try {
       const results = await provider.geocode(query);
       searchResults[kind] = results.slice(0, 5);
+      searchFeedback[kind] = results.length ? "" : buildSearchFeedback(kind, "ZERO_RESULTS");
       renderSearchResults(kind);
     } catch (error) {
-      setMessage(`Search failed: ${serializeError(error)}`, "error");
+      searchResults[kind] = [];
+      const message = serializeError(error);
+      searchFeedback[kind] = buildSearchFeedback(kind, message);
+      if (searchFeedback[kind]) {
+        renderSearchResults(kind);
+      } else {
+        setMessage(`Search failed: ${message}`, "error");
+      }
     }
   }, 250);
 
-  inputElement.addEventListener("input", (event) => {
+  elements.composerInput.addEventListener("input", (event) => {
     event.stopPropagation();
-    selectedPlaces[kind] = null;
+    const activeKind = composerState.target;
+    if (!activeKind) {
+      return;
+    }
+
+    selectedPlaces[activeKind] = null;
+    searchFeedback[activeKind] = "";
+    if (activeKind === "destination" && composerState.destinationKind === "DYNAMIC") {
+      hideSearchResults(activeKind);
+      return;
+    }
     debouncedSearch();
   });
 
-  inputElement.addEventListener("focus", (event) => {
+  elements.composerInput.addEventListener("focus", (event) => {
     event.stopPropagation();
-    if (searchResults[kind].length) {
-      renderSearchResults(kind);
+    const activeKind = composerState.target;
+    if (!activeKind) {
+      return;
+    }
+
+    if (searchResults[activeKind].length) {
+      renderSearchResults(activeKind);
     }
   });
 
-  inputElement.addEventListener("click", (event) => {
+  elements.composerInput.addEventListener("click", (event) => {
     event.stopPropagation();
   });
 
-  inputElement.addEventListener("keydown", async (event) => {
+  elements.composerInput.addEventListener("keydown", async (event) => {
     if (event.key !== "Enter") {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
-    const location = await resolveFirstSearchResult(kind);
-    if (!location) {
-      setMessage("No matching result found for that query.", "warning");
-      return;
-    }
-
-    onSelect(location);
-    inputElement.value = location.address || location.label;
-    hideSearchResults(kind);
-    setMessage(`Selected ${getLocationKindLabel(kind)}: ${location.label}`, "");
+    await submitComposer();
   });
 
-  resultsElement.addEventListener("click", (event) => {
+  elements.composerSearchResults.addEventListener("click", (event) => {
     event.stopPropagation();
   });
 }
@@ -402,8 +398,7 @@ async function resolveFirstSearchResult(kind) {
     return selectedPlaces[kind];
   }
 
-  const inputElement = kind === "home" ? elements.homeSearchInput : elements.destinationSearchInput;
-  const query = inputElement.value.trim();
+  const query = elements.composerInput.value.trim();
   if (!query || !provider) {
     return null;
   }
@@ -412,7 +407,7 @@ async function resolveFirstSearchResult(kind) {
   if (existingResults.length) {
     const first = existingResults[0];
     selectedPlaces[kind] = first;
-    inputElement.value = first.address || first.label;
+    elements.composerInput.value = first.address || first.label;
     hideSearchResults(kind);
     return first;
   }
@@ -421,7 +416,7 @@ async function resolveFirstSearchResult(kind) {
   const first = results[0] || null;
   if (first) {
     selectedPlaces[kind] = first;
-    inputElement.value = first.address || first.label;
+    elements.composerInput.value = first.address || first.label;
   }
   searchResults[kind] = results.slice(0, 5);
   hideSearchResults(kind);
@@ -429,16 +424,24 @@ async function resolveFirstSearchResult(kind) {
 }
 
 function renderSearchResults(kind) {
-  const listElement = kind === "home" ? elements.homeSearchResults : elements.destinationSearchResults;
-  const inputElement = kind === "home" ? elements.homeSearchInput : elements.destinationSearchInput;
+  const listElement = elements.composerSearchResults;
   const results = searchResults[kind];
+  const feedback = searchFeedback[kind];
 
-  if (!results.length) {
+  if (!results.length && !feedback) {
     hideSearchResults(kind);
     return;
   }
 
   listElement.innerHTML = "";
+  if (feedback) {
+    const item = document.createElement("li");
+    item.innerHTML = `<div class="search-result-empty">${escapeHtml(feedback)}</div>`;
+    listElement.append(item);
+    listElement.classList.remove("is-hidden");
+    return;
+  }
+
   results.forEach((location) => {
     const item = document.createElement("li");
     const button = document.createElement("button");
@@ -449,9 +452,8 @@ function renderSearchResults(kind) {
     `;
     button.addEventListener("click", () => {
       selectedPlaces[kind] = location;
-      inputElement.value = location.address || location.label;
+      elements.composerInput.value = location.address || location.label;
       hideSearchResults(kind);
-      setMessage(`Selected ${getLocationKindLabel(kind)}: ${location.label}`, "");
     });
     item.append(button);
     listElement.append(item);
@@ -461,55 +463,233 @@ function renderSearchResults(kind) {
 }
 
 function hideSearchResults(kind) {
-  const listElement = kind === "home" ? elements.homeSearchResults : elements.destinationSearchResults;
-  listElement.classList.add("is-hidden");
+  void kind;
+  elements.composerSearchResults.classList.add("is-hidden");
+  elements.composerSearchResults.innerHTML = "";
 }
 
 function clearSearchSelection(kind) {
   selectedPlaces[kind] = null;
   searchResults[kind] = [];
-  if (kind === "home") {
-    elements.homeSearchInput.value = "";
-  } else {
-    elements.destinationSearchInput.value = "";
+  searchFeedback[kind] = "";
+  if (composerState.target === kind && !activeMapPick) {
+    elements.composerInput.value = "";
   }
   hideSearchResults(kind);
 }
 
-function clearDestinationDialog() {
-  clearSearchSelection("destination");
-  elements.destinationLabelInput.value = "";
-  elements.dynamicTypeInput.value = "";
-  elements.dynamicCountInput.value = "3";
-  elements.destinationKindSelect.value = "FIXED";
-  syncDestinationDialogMode();
-}
+function buildSearchFeedback(kind, errorText) {
+  const normalized = String(errorText || "").toUpperCase();
+  if (kind === "destination" && normalized.includes("ZERO_RESULTS")) {
+    return "Doesn't seem to be an address. Try find near location instead?";
+  }
 
-function syncDestinationDialogMode() {
-  const isDynamic = elements.destinationKindSelect.value === "DYNAMIC";
-  elements.fixedDestinationFields.classList.toggle("is-hidden", isDynamic);
-  elements.dynamicDestinationFields.classList.toggle("is-hidden", !isDynamic);
-  elements.selectDestinationOnMapButton.classList.toggle("is-hidden", isDynamic);
-  elements.addDestinationButton.textContent = isDynamic ? "Add Dynamic Destination" : "Add Destination";
-}
-
-function openHomeDialog() {
-  cancelMapPick();
-  clearSearchSelection("home");
-  elements.homeDialog.showModal();
-  elements.homeSearchInput.focus();
-}
-
-function openDestinationDialog() {
-  cancelMapPick();
-  clearDestinationDialog();
-  elements.destinationDialog.showModal();
-  elements.destinationKindSelect.focus();
+  return "";
 }
 
 function buildDynamicDestinationLabel(primaryType, count) {
   const normalized = primaryType.replaceAll("_", " ");
   return `nearest ${normalized}`;
+}
+
+function activateComposer(target) {
+  stopMapPick({ clearSelection: true });
+  composerState.target = target;
+  composerState.editing = null;
+  elements.composerNameInput.value = "";
+  if (target === "home") {
+    clearSearchSelection("home");
+  } else {
+    clearSearchSelection("destination");
+    applyComposerDefaults();
+  }
+  renderComposer();
+  elements.composerInput.focus();
+}
+
+function applyComposerDefaults() {
+  if (composerState.target !== "destination") {
+    return;
+  }
+
+  if (composerState.destinationKind === "DYNAMIC") {
+    elements.composerInput.value = "";
+    elements.composerCountInput.value = elements.composerCountInput.value || "3";
+    hideSearchResults("destination");
+    return;
+  }
+
+  elements.composerInput.value = "";
+}
+
+function renderComposer() {
+  const target = composerState.target;
+  const isDestination = target === "destination";
+  const isDynamic = isDestination && composerState.destinationKind === "DYNAMIC";
+  const isEditing = Boolean(composerState.editing);
+  const isMapPicking = Boolean(activeMapPick);
+  const isOpen = Boolean(target) || isMapPicking;
+
+  elements.activatePlaceButton.classList.toggle("is-active", target === "home");
+  elements.activateDestinationButton.classList.toggle("is-active", target === "destination");
+  elements.locationComposer.classList.toggle("is-hidden", !isOpen);
+
+  elements.composerEmptyState.classList.add("is-hidden");
+  elements.composerEditPanel.classList.toggle("is-hidden", !target || isMapPicking);
+  elements.composerMapPanel.classList.toggle("is-hidden", !isMapPicking);
+  elements.composerEditPanel.classList.toggle("is-home", target === "home");
+  elements.composerEditPanel.classList.toggle("is-destination-fixed", isDestination && !isDynamic);
+  elements.composerKindField.classList.toggle("is-hidden", !isDestination);
+  elements.composerCountField.classList.toggle("is-hidden", !isDynamic);
+  elements.composerMapButton.classList.toggle("is-hidden", isDynamic);
+
+  if (!target && !isMapPicking) {
+    return;
+  }
+
+  if (target) {
+    elements.composerKindSelect.value = composerState.destinationKind;
+    elements.composerKindSelect.disabled = isEditing;
+    elements.composerInputLabel.textContent = "";
+    elements.composerCountLabel.textContent = isDynamic
+      ? `Shows the closest ${Math.max(1, Number(elements.composerCountInput.value) || 1)} results\nnear each location`
+      : "";
+    elements.composerNameInput.placeholder = "optional name";
+    elements.composerInput.placeholder = target === "home"
+      ? "for example: Alexanderplatz 1, Berlin"
+      : isDynamic
+        ? "for example: supermarket"
+        : "for example: Alexanderplatz 1, Berlin";
+    elements.composerInput.setAttribute(
+      "aria-label",
+      target === "home" ? "Location address" : isDynamic ? "Find near location query" : "Point of Interest address",
+    );
+    elements.composerHelp.textContent = "";
+    elements.composerAddButton.textContent = isEditing ? "Save" : "Add";
+    if (isDynamic) {
+      elements.composerInput.setAttribute("list", "place-type-suggestions");
+    } else {
+      elements.composerInput.removeAttribute("list");
+    }
+  }
+
+  if (isMapPicking) {
+    const noun = activeMapPick.label;
+    const hasLocation = Boolean(activeMapPick.location);
+    elements.composerMapTitle.textContent = `Select ${noun} on map`;
+    elements.composerMapDetail.textContent = hasLocation
+      ? activeMapPick.location.address || activeMapPick.location.label
+      : `Click on the map to place the ${noun}. Click again to move it, then confirm.`;
+    elements.composerMapConfirmButton.textContent = activeMapPick.kind === "home" ? "Confirm Location" : "Confirm Point of Interest";
+  }
+}
+
+function resetComposer() {
+  stopMapPick({ clearSelection: true });
+  composerState.target = null;
+  composerState.editing = null;
+  clearSearchSelection("home");
+  clearSearchSelection("destination");
+  elements.composerInput.value = "";
+  elements.composerNameInput.value = "";
+  elements.composerCountInput.value = "3";
+  renderComposer();
+}
+
+function commitFixedLocation(kind, location) {
+  if (!location) {
+    return;
+  }
+
+  if (composerState.editing?.kind === "home") {
+    const label = elements.composerNameInput.value.trim() || buildDefaultLocationLabel(location);
+    updateBoardState({
+      homes: boardState.homes.map((home) =>
+        home.id === composerState.editing.id
+          ? {
+              ...home,
+              location: {
+                ...location,
+                label,
+              },
+            }
+          : home,
+      ),
+    });
+  } else if (composerState.editing?.kind === "destination") {
+    const label = elements.composerNameInput.value.trim() || buildDefaultLocationLabel(location);
+    updateBoardState({
+      fixedDestinations: boardState.fixedDestinations.map((destination) =>
+        destination.id === composerState.editing.id
+          ? {
+              ...destination,
+              label,
+              location: {
+                ...location,
+                label,
+              },
+            }
+          : destination,
+      ),
+    });
+  } else if (kind === "home") {
+    addPlace(location);
+  } else {
+    addDestination(location, location.label);
+  }
+  resetComposer();
+}
+
+async function submitComposer() {
+  const kind = composerState.target;
+  if (!kind) {
+    return;
+  }
+
+  if (kind === "destination" && composerState.destinationKind === "DYNAMIC") {
+    submitDynamicDestination();
+    return;
+  }
+
+  const location = await resolveFirstSearchResult(kind);
+  if (!location) {
+    setMessage("No matching result found for that query.", "warning");
+    return;
+  }
+
+  selectedPlaces[kind] = location;
+  elements.composerInput.value = location.address || location.label;
+  hideSearchResults(kind);
+  commitFixedLocation(kind, location);
+}
+
+function submitDynamicDestination() {
+  const primaryType = elements.composerInput.value.trim();
+  const count = Number(elements.composerCountInput.value);
+  if (!primaryType || !Number.isInteger(count) || count < 1 || count > 10) {
+    setMessage("Provide a nearby search query and a count between 1 and 10.", "warning");
+    return;
+  }
+
+  const label = elements.composerNameInput.value.trim() || buildDynamicDestinationLabel(primaryType, count);
+  if (composerState.editing?.kind === "dynamic") {
+    updateBoardState({
+      dynamicGroups: boardState.dynamicGroups.map((group) =>
+        group.id === composerState.editing.id
+          ? {
+              ...group,
+              label,
+              primaryType,
+              count,
+            }
+          : group,
+      ),
+    });
+  } else {
+    const dynamicGroup = createDynamicGroup({ label, primaryType, count });
+    updateBoardState({ dynamicGroups: [dynamicGroup, ...boardState.dynamicGroups] });
+  }
+  resetComposer();
 }
 
 function openSettings() {
@@ -562,18 +742,16 @@ function renderAll() {
 
   renderComparison(elements, boardState, comparisonSnapshot, highlightedCell, {
     tableFocus,
+    pendingDelete,
     onSelectCell: handleCellSelection,
     onCenterHome: centerHomeById,
     onCenterDestination: centerDestinationById,
-    onRemoveHome: (homeId) => updateBoardState({ homes: boardState.homes.filter((home) => home.id !== homeId) }),
-    onRemoveDestination: (destinationId) =>
-      updateBoardState({ fixedDestinations: boardState.fixedDestinations.filter((item) => item.id !== destinationId) }),
-    onRemoveDynamic: (dynamicId) =>
-      updateBoardState({ dynamicGroups: boardState.dynamicGroups.filter((item) => item.id !== dynamicId) }),
-    onOpenHomeDialog: openHomeDialog,
-    onOpenDestinationDialog: openDestinationDialog,
+    onEditItem: openEditorForItem,
+    onRequestDelete: requestDelete,
+    onConfirmDelete: confirmDelete,
+    onCancelDelete: cancelDelete,
   });
-  renderMapPickBar();
+  renderComposer();
   renderMap();
 }
 
@@ -635,15 +813,18 @@ function startMapPick(kind) {
     return;
   }
 
-  if (kind === "destination" && elements.destinationKindSelect.value === "DYNAMIC") {
-    setMessage("Dynamic destinations are query-based and cannot be pinned on the map.", "warning");
+  if (!kind) {
+    return;
+  }
+
+  if (kind === "destination" && composerState.destinationKind === "DYNAMIC") {
+    setMessage("Find near location is query-based and cannot be pinned on the map.", "warning");
     return;
   }
 
   activeMapPick = {
     kind,
-    label: kind === "home" ? "place" : "destination",
-    customLabel: kind === "destination" ? elements.destinationLabelInput.value.trim() : "",
+    label: kind === "home" ? "location" : "Point of Interest",
     location: null,
   };
 
@@ -664,16 +845,10 @@ function startMapPick(kind) {
       location: resolved,
     };
     provider.showDraftLocation(resolved, kind === "home" ? "home" : "destination");
-    renderMapPickBar();
+    renderComposer();
   });
 
-  if (kind === "home") {
-    elements.homeDialog.close();
-  } else {
-    elements.destinationDialog.close();
-  }
-
-  renderMapPickBar();
+  renderComposer();
 }
 
 function confirmMapPick() {
@@ -686,21 +861,9 @@ function confirmMapPick() {
     return;
   }
 
-  const { kind, location, customLabel } = activeMapPick;
+  const { kind, location } = activeMapPick;
   stopMapPick({ clearSelection: false });
-
-  if (kind === "home") {
-    addPlace(location);
-    clearSearchSelection("home");
-    return;
-  }
-
-  addDestination(location, customLabel || location.label);
-  clearDestinationDialog();
-}
-
-function cancelMapPick() {
-  stopMapPick({ clearSelection: true });
+  commitFixedLocation(kind, location);
 }
 
 function stopMapPick({ clearSelection = true } = {}) {
@@ -716,18 +879,104 @@ function stopMapPick({ clearSelection = true } = {}) {
   }
 
   activeMapPick = null;
-  renderMapPickBar();
 }
 
-function clearActiveSelection() {
+function clearActiveSelection(options = {}) {
   if (!highlightedCell && !tableFocus) {
-    return;
+    return false;
   }
 
   highlightedCell = null;
   tableFocus = null;
   preserveMapViewport = true;
-  renderAll();
+  if (options.render !== false) {
+    renderAll();
+  }
+  return true;
+}
+
+function openEditorForItem(descriptor) {
+  stopMapPick({ clearSelection: true });
+  pendingDelete = null;
+
+  if (descriptor.kind === "home") {
+    const home = boardState.homes.find((item) => item.id === descriptor.id);
+    if (!home) {
+      return;
+    }
+
+    composerState = {
+      target: "home",
+      destinationKind: "FIXED",
+      editing: { kind: "home", id: home.id },
+    };
+    selectedPlaces.home = home.location;
+    searchResults.home = [];
+    searchFeedback.home = "";
+    hideSearchResults("home");
+    elements.composerInput.value = home.location.address || home.location.label;
+    elements.composerNameInput.value = deriveEditableCustomName(home.location.label, home.location.address);
+    renderComposer();
+    elements.composerNameInput.focus();
+    return;
+  }
+
+  if (descriptor.kind === "destination") {
+    const destination = boardState.fixedDestinations.find((item) => item.id === descriptor.id);
+    if (!destination) {
+      return;
+    }
+
+    composerState = {
+      target: "destination",
+      destinationKind: "FIXED",
+      editing: { kind: "destination", id: destination.id },
+    };
+    selectedPlaces.destination = destination.location;
+    searchResults.destination = [];
+    searchFeedback.destination = "";
+    hideSearchResults("destination");
+    elements.composerInput.value = destination.location.address || destination.label;
+    elements.composerNameInput.value = deriveEditableCustomName(destination.label, destination.location.address);
+    renderComposer();
+    elements.composerNameInput.focus();
+    return;
+  }
+
+  const dynamicGroup = boardState.dynamicGroups.find((item) => item.id === descriptor.id);
+  if (!dynamicGroup) {
+    return;
+  }
+
+  composerState = {
+    target: "destination",
+    destinationKind: "DYNAMIC",
+    editing: { kind: "dynamic", id: dynamicGroup.id },
+  };
+  selectedPlaces.destination = null;
+  searchResults.destination = [];
+  searchFeedback.destination = "";
+  hideSearchResults("destination");
+  elements.composerInput.value = dynamicGroup.primaryType.replaceAll("_", " ");
+  elements.composerCountInput.value = String(dynamicGroup.count);
+  elements.composerNameInput.value = dynamicGroup.label === buildDynamicDestinationLabel(dynamicGroup.primaryType, dynamicGroup.count)
+    ? ""
+    : dynamicGroup.label;
+  renderComposer();
+  elements.composerNameInput.focus();
+}
+
+function deriveEditableCustomName(label, address = "") {
+  const defaultLabel = String(address || "").split(",")[0]?.trim();
+  if (!label) {
+    return "";
+  }
+  return label === defaultLabel ? "" : label;
+}
+
+function buildDefaultLocationLabel(location) {
+  const firstAddressSegment = String(location?.address || "").split(",")[0]?.trim();
+  return firstAddressSegment || location?.label || "Pinned location";
 }
 
 function centerHomeById(homeId) {
@@ -765,28 +1014,6 @@ function setMessage(message, tone = "") {
   elements.messageBar.classList.toggle("is-error", tone === "error");
 }
 
-function renderMapPickBar() {
-  if (!activeMapPick) {
-    elements.mapPickBar.classList.add("is-hidden");
-    elements.mapPickTitle.textContent = "";
-    elements.mapPickDetail.textContent = "";
-    return;
-  }
-
-  const noun = activeMapPick.label;
-  const hasLocation = Boolean(activeMapPick.location);
-  elements.mapPickBar.classList.remove("is-hidden");
-  elements.mapPickTitle.textContent = `Select ${noun} on map`;
-  elements.mapPickDetail.textContent = hasLocation
-    ? activeMapPick.location.address || activeMapPick.location.label
-    : `Click on the map to place the ${noun}. Click again to move it, then confirm.`;
-  elements.mapPickConfirmButton.textContent = activeMapPick.kind === "home" ? "Confirm Place" : "Confirm Destination";
-}
-
-function getLocationKindLabel(kind) {
-  return kind === "home" ? "place" : "destination";
-}
-
 function shouldClearSelectionOnDocumentClick(target) {
   if (!(target instanceof Element)) {
     return false;
@@ -796,10 +1023,47 @@ function shouldClearSelectionOnDocumentClick(target) {
     "[data-row-id]",
     "[data-center-home-id]",
     "[data-center-destination-id]",
+    "[data-delete-control]",
     ".graph-bar-button",
     ".map-marker-pill",
-    ".map-pick-bar",
+    ".location-composer",
   ].join(","));
+}
+
+function requestDelete(descriptor) {
+  const isSameTarget =
+    pendingDelete &&
+    pendingDelete.kind === descriptor.kind &&
+    pendingDelete.id === descriptor.id &&
+    pendingDelete.scopeKey === descriptor.scopeKey;
+
+  pendingDelete = isSameTarget ? null : descriptor;
+  renderAll();
+}
+
+function confirmDelete(descriptor) {
+  pendingDelete = null;
+
+  if (descriptor.kind === "home") {
+    updateBoardState({ homes: boardState.homes.filter((home) => home.id !== descriptor.id) });
+    return;
+  }
+
+  if (descriptor.kind === "dynamic") {
+    updateBoardState({ dynamicGroups: boardState.dynamicGroups.filter((item) => item.id !== descriptor.id) });
+    return;
+  }
+
+  updateBoardState({ fixedDestinations: boardState.fixedDestinations.filter((item) => item.id !== descriptor.id) });
+}
+
+function cancelDelete() {
+  if (!pendingDelete) {
+    return;
+  }
+
+  pendingDelete = null;
+  renderAll();
 }
 
 function openPresetMenu() {
@@ -820,31 +1084,31 @@ function captureElements() {
     messageBar: document.querySelector("#message-bar"),
     map: document.querySelector("#map"),
     mapStatus: document.querySelector("#map-status"),
-    mapPickBar: document.querySelector("#map-pick-bar"),
-    mapPickTitle: document.querySelector("#map-pick-title"),
-    mapPickDetail: document.querySelector("#map-pick-detail"),
-    mapPickConfirmButton: document.querySelector("#map-pick-confirm-button"),
-    mapPickCancelButton: document.querySelector("#map-pick-cancel-button"),
-    homeDialog: document.querySelector("#home-dialog"),
-    homeSearchInput: document.querySelector("#home-search-input"),
-    homeSearchResults: document.querySelector("#home-search-results"),
-    selectHomeOnMapButton: document.querySelector("#select-home-on-map-button"),
-    cancelHomeButton: document.querySelector("#cancel-home-button"),
-    destinationDialog: document.querySelector("#destination-dialog"),
-    destinationKindSelect: document.querySelector("#destination-kind-select"),
-    fixedDestinationFields: document.querySelector("#fixed-destination-fields"),
-    dynamicDestinationFields: document.querySelector("#dynamic-destination-fields"),
-    destinationSearchInput: document.querySelector("#destination-search-input"),
-    destinationSearchResults: document.querySelector("#destination-search-results"),
-    destinationLabelInput: document.querySelector("#destination-label-input"),
-    selectDestinationOnMapButton: document.querySelector("#select-destination-on-map-button"),
-    dynamicTypeInput: document.querySelector("#dynamic-type-input"),
-    dynamicCountInput: document.querySelector("#dynamic-count-input"),
-    addDestinationButton: document.querySelector("#add-destination-button"),
-    cancelDestinationButton: document.querySelector("#cancel-destination-button"),
+    locationComposer: document.querySelector("#location-composer"),
+    activatePlaceButton: document.querySelector("#activate-place-button"),
+    activateDestinationButton: document.querySelector("#activate-destination-button"),
+    composerEmptyState: document.querySelector("#composer-empty-state"),
+    composerEditPanel: document.querySelector("#composer-edit-panel"),
+    composerMapPanel: document.querySelector("#composer-map-panel"),
+    composerKindField: document.querySelector("#composer-kind-field"),
+    composerKindSelect: document.querySelector("#composer-kind-select"),
+    composerInputLabel: document.querySelector("#composer-input-label"),
+    composerInput: document.querySelector("#composer-input"),
+    composerNameInput: document.querySelector("#composer-name-input"),
+    composerCountLabel: document.querySelector("#composer-count-field > span"),
+    composerHelp: document.querySelector("#composer-help"),
+    composerCountField: document.querySelector("#composer-count-field"),
+    composerCountInput: document.querySelector("#composer-count-input"),
+    composerMapButton: document.querySelector("#composer-map-button"),
+    composerAddButton: document.querySelector("#composer-add-button"),
+    composerCancelButton: document.querySelector("#composer-cancel-button"),
+    composerSearchResults: document.querySelector("#composer-search-results"),
+    composerMapTitle: document.querySelector("#composer-map-title"),
+    composerMapDetail: document.querySelector("#composer-map-detail"),
+    composerMapConfirmButton: document.querySelector("#composer-map-confirm-button"),
+    composerMapCancelButton: document.querySelector("#composer-map-cancel-button"),
     presetDayInput: document.querySelector("#preset-day-input"),
     presetTimeInput: document.querySelector("#preset-time-input"),
-    addHomeManualButton: document.querySelector("#add-home-manual-button"),
     addPresetButton: document.querySelector("#add-preset-button"),
     presetsList: document.querySelector("#presets-list"),
     comparisonStatus: document.querySelector("#comparison-status"),

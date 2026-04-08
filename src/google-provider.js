@@ -1,6 +1,6 @@
 import { DEFAULT_CENTER, STORAGE_KEYS } from "./constants.js";
 import { loadCache, saveCache } from "./storage.js";
-import { buildLocationRefFromPlace, nextDateForPreset, serializeError, titleCase, toPlainLatLng } from "./utils.js";
+import { buildHomeColorStyle, buildLocationRefFromPlace, nextDateForPreset, serializeError, toPlainLatLng } from "./utils.js";
 
 export class GoogleTravelProvider {
   constructor(google, mapContainer, config = {}) {
@@ -34,7 +34,7 @@ export class GoogleTravelProvider {
   }
 
   async #initLibraries() {
-    const [{ Map }, { AdvancedMarkerElement }, { Place, SearchNearbyRankPreference }, { RouteMatrix, Route }, { Geocoder }] = await Promise.all([
+    const [{ Map }, { AdvancedMarkerElement }, { Place }, { RouteMatrix, Route }, { Geocoder }] = await Promise.all([
       this.google.maps.importLibrary("maps"),
       this.google.maps.importLibrary("marker"),
       this.google.maps.importLibrary("places"),
@@ -45,7 +45,6 @@ export class GoogleTravelProvider {
     this.MapClass = Map;
     this.AdvancedMarkerElementClass = AdvancedMarkerElement;
     this.PlaceClass = Place;
-    this.SearchNearbyRankPreference = SearchNearbyRankPreference;
     this.RouteMatrix = RouteMatrix;
     this.RouteClass = Route;
     this.GeocoderClass = Geocoder;
@@ -76,7 +75,7 @@ export class GoogleTravelProvider {
 
     const content = this.#buildMarkerContent(
       {
-        label: type === "home" ? "P" : "D",
+        label: type === "home" ? "L" : "P",
         title: locationRef.label,
         type,
       },
@@ -171,7 +170,7 @@ export class GoogleTravelProvider {
     const cacheKey = JSON.stringify({
       lat: home.location.lat,
       lng: home.location.lng,
-      type: dynamicGroup.primaryType,
+      query: dynamicGroup.primaryType,
       count: dynamicGroup.count,
     });
 
@@ -181,25 +180,31 @@ export class GoogleTravelProvider {
 
     const center = new this.google.maps.LatLng(home.location.lat, home.location.lng);
     let radius = 800;
-    let placeResults = [];
+    const placeResults = new Map();
 
-    while (radius <= 50000 && placeResults.length < dynamicGroup.count) {
-      const response = await this.PlaceClass.searchNearby({
+    while (radius <= 50000 && placeResults.size < dynamicGroup.count) {
+      const response = await this.PlaceClass.searchByText({
+        textQuery: dynamicGroup.primaryType,
         fields: ["displayName", "formattedAddress", "location", "id"],
-        locationRestriction: {
-          center,
-          radius,
-        },
-        includedPrimaryTypes: [dynamicGroup.primaryType],
+        locationBias: { center, radius },
+        rankPreference: "DISTANCE",
         maxResultCount: Math.min(20, dynamicGroup.count * 4),
-        rankPreference: this.SearchNearbyRankPreference.DISTANCE,
       });
 
-      placeResults = (response.places || []).filter((place) => place.location);
+      (response.places || [])
+        .filter((place) => place.location && place.id)
+        .forEach((place) => {
+          if (!placeResults.has(place.id)) {
+            placeResults.set(place.id, place);
+          }
+        });
       radius *= 2;
     }
 
-    const normalized = placeResults.slice(0, dynamicGroup.count).map((place) => buildLocationRefFromPlace(place, titleCase(dynamicGroup.primaryType)));
+    const normalized = Array.from(placeResults.values())
+      .sort((left, right) => this.#distanceToLocation(home.location, left.location) - this.#distanceToLocation(home.location, right.location))
+      .slice(0, dynamicGroup.count)
+      .map((place) => buildLocationRefFromPlace(place, dynamicGroup.primaryType));
     this.nearbyCache.set(cacheKey, normalized);
     saveCache(STORAGE_KEYS.nearbyCache, Object.fromEntries(this.nearbyCache.entries()));
     return normalized;
@@ -281,9 +286,10 @@ export class GoogleTravelProvider {
       entries.push({
         key: home.id,
         position: home.location,
-        label: "P",
+        label: "L",
         title: home.location.label,
         type: "home",
+        style: buildHomeColorStyle(home),
         target: { type: "home", id: home.id },
       });
     });
@@ -292,7 +298,7 @@ export class GoogleTravelProvider {
       entries.push({
         key: destination.id,
         position: destination.location,
-        label: "D",
+        label: "P",
         title: destination.label,
         type: "destination",
         target: { type: "column", id: destination.id },
@@ -340,7 +346,7 @@ export class GoogleTravelProvider {
     const bounds = new this.google.maps.LatLngBounds();
     entries.forEach((entry) => bounds.extend(entry.position));
 
-    if (!bounds.isEmpty() && !comparisonData?.preserveViewport) {
+    if (!bounds.isEmpty() && !comparisonData?.preserveViewport && !comparisonData?.highlight) {
       this.map.fitBounds(bounds, 64);
     }
 
@@ -356,11 +362,6 @@ export class GoogleTravelProvider {
     if (!this.map || !homeLocation || !destinationLocation) {
       return;
     }
-
-    const bounds = new this.google.maps.LatLngBounds();
-    bounds.extend(homeLocation);
-    bounds.extend(destinationLocation);
-    this.map.fitBounds(bounds, 96);
 
     const requestId = ++this.highlightRequestId;
     this.#clearRoutePolylines();
@@ -392,6 +393,12 @@ export class GoogleTravelProvider {
           });
           polyline.setMap(this.map);
         });
+        const routeBounds = this.#buildPolylineBounds(this.routePolylines);
+        if (routeBounds && !routeBounds.isEmpty()) {
+          this.map.fitBounds(routeBounds, 48);
+        } else {
+          this.#fitLocations(origin, destination);
+        }
         this.#clearFallbackHighlight();
         return;
       }
@@ -409,6 +416,7 @@ export class GoogleTravelProvider {
     }
 
     this.highlightCircle.setPath([origin, destination]);
+    this.#fitLocations(origin, destination);
   }
 
   clearHighlight() {
@@ -435,6 +443,35 @@ export class GoogleTravelProvider {
   #clearRoutePolylines() {
     this.routePolylines.forEach((polyline) => polyline.setMap(null));
     this.routePolylines = [];
+  }
+
+  #fitLocations(origin, destination) {
+    const bounds = new this.google.maps.LatLngBounds();
+    bounds.extend(origin);
+    bounds.extend(destination);
+    this.map.fitBounds(bounds, 48);
+  }
+
+  #buildPolylineBounds(polylines) {
+    if (!polylines?.length) {
+      return null;
+    }
+
+    const bounds = new this.google.maps.LatLngBounds();
+    let hasPoints = false;
+    polylines.forEach((polyline) => {
+      const path = polyline.getPath?.();
+      if (!path) {
+        return;
+      }
+
+      path.forEach((point) => {
+        bounds.extend(point);
+        hasPoints = true;
+      });
+    });
+
+    return hasPoints ? bounds : null;
   }
 
   #buildWaypoint(locationRef) {
@@ -472,6 +509,9 @@ export class GoogleTravelProvider {
     wrapper.className = `map-marker-pill map-marker-pill--${entry.type}${isDraft ? " map-marker-pill--draft" : ""}`;
     wrapper.title = entry.title;
     wrapper.textContent = entry.label;
+    if (entry.style) {
+      wrapper.style.cssText = entry.style;
+    }
     wrapper.addEventListener("click", (event) => {
       event.stopPropagation();
       onSelectMarker?.(entry.target);
@@ -517,5 +557,18 @@ export class GoogleTravelProvider {
     }
 
     return formattedAddress || "Pinned location";
+  }
+
+  #distanceToLocation(origin, locationLike) {
+    const target = toPlainLatLng(locationLike);
+    if (!origin || !target) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const latScale = 111320;
+    const lngScale = Math.cos(((origin.lat + target.lat) / 2) * (Math.PI / 180)) * 111320;
+    const latDelta = (target.lat - origin.lat) * latScale;
+    const lngDelta = (target.lng - origin.lng) * lngScale;
+    return Math.hypot(latDelta, lngDelta);
   }
 }

@@ -1,5 +1,5 @@
-import { DAY_TYPES, ROUTE_DIRECTIONS, TRAVEL_MODES } from "./constants.js";
-import { escapeHtml, formatDuration, formatPresetLabel, formatTimestamp } from "./utils.js";
+import { ROUTE_DIRECTIONS, TRAVEL_MODES } from "./constants.js";
+import { buildHomeColorStyle, escapeHtml, formatDuration, formatPresetLabel, formatTimestamp } from "./utils.js";
 
 export function renderPresetMenu(elements, boardState, handlers) {
   renderGenericList(
@@ -41,7 +41,13 @@ export function renderModeAndPresetSelectors(elements, boardState, handlers) {
 
   const destinationsToHome = boardState.selectedDirection === ROUTE_DIRECTIONS[1].value;
   elements.directionToggle.classList.toggle("is-destinations-to-home", destinationsToHome);
-  elements.directionToggle.setAttribute("aria-checked", String(destinationsToHome));
+  elements.directionToggle.setAttribute(
+    "aria-label",
+    destinationsToHome ? "Travel direction: Points of Interest to Location" : "Travel direction: Location to Points of Interest",
+  );
+  elements.directionToggle.title = destinationsToHome
+    ? "Click to switch to Location to Points of Interest"
+    : "Click to switch to Points of Interest to Location";
 }
 
 export function renderComparison(elements, boardState, snapshot, highlightedCell, handlers) {
@@ -51,17 +57,23 @@ export function renderComparison(elements, boardState, snapshot, highlightedCell
 
   elements.comparisonStatus.textContent =
     homeCount === 0 && destinationCount === 0
-      ? "Start by adding a place row or a destination column."
+      ? "Start by adding a location row or a Point of Interest column."
       : homeCount === 0
-        ? "Add at least one place row to compare travel times."
+        ? "Add at least one location row to compare travel times."
         : destinationCount === 0
-          ? "Add at least one destination column to compare travel times."
+          ? "Add at least one Point of Interest column to compare travel times."
           : "";
   elements.comparisonFootnote.textContent = snapshot.computedAt
     ? `Google Maps Platform. Computed at ${formatTimestamp(snapshot.computedAt)}.`
     : "";
 
-  elements.comparisonTableContainer.innerHTML = buildTableMarkup(boardState, destinationColumns, highlightedCell, handlers.tableFocus);
+  elements.comparisonTableContainer.innerHTML = buildTableMarkup(
+    boardState,
+    destinationColumns,
+    highlightedCell,
+    handlers.tableFocus,
+    handlers.pendingDelete,
+  );
   elements.comparisonGraphContainer.innerHTML = buildGraphMarkup(boardState, destinationColumns, highlightedCell);
 
   bindTableInteractions(elements.comparisonTableContainer, handlers);
@@ -106,20 +118,36 @@ function bindTableInteractions(container, handlers) {
     });
   });
 
-  container.querySelectorAll("[data-remove-home-id]").forEach((button) => {
-    button.addEventListener("click", () => handlers.onRemoveHome(button.getAttribute("data-remove-home-id")));
+  container.querySelectorAll("[data-request-delete-kind]").forEach((button) => {
+    button.addEventListener("click", () => {
+      handlers.onRequestDelete({
+        kind: button.getAttribute("data-request-delete-kind"),
+        id: button.getAttribute("data-request-delete-id"),
+        scopeKey: button.getAttribute("data-request-delete-scope"),
+      });
+    });
   });
 
-  container.querySelectorAll("[data-remove-destination-id]").forEach((button) => {
+  container.querySelectorAll("[data-edit-kind]").forEach((button) => {
     button.addEventListener("click", () => {
-      const id = button.getAttribute("data-remove-destination-id");
-      const kind = button.getAttribute("data-destination-kind");
-      if (kind === "dynamic") {
-        handlers.onRemoveDynamic(id);
-      } else {
-        handlers.onRemoveDestination(id);
-      }
+      handlers.onEditItem({
+        kind: button.getAttribute("data-edit-kind"),
+        id: button.getAttribute("data-edit-id"),
+      });
     });
+  });
+
+  container.querySelectorAll("[data-confirm-delete-kind]").forEach((button) => {
+    button.addEventListener("click", () => {
+      handlers.onConfirmDelete({
+        kind: button.getAttribute("data-confirm-delete-kind"),
+        id: button.getAttribute("data-confirm-delete-id"),
+      });
+    });
+  });
+
+  container.querySelectorAll("[data-cancel-delete]").forEach((button) => {
+    button.addEventListener("click", () => handlers.onCancelDelete());
   });
 
   container.querySelectorAll("[data-center-home-id]").forEach((button) => {
@@ -135,13 +163,6 @@ function bindTableInteractions(container, handlers) {
     });
   });
 
-  container.querySelectorAll("[data-open-home-dialog]").forEach((button) => {
-    button.addEventListener("click", handlers.onOpenHomeDialog);
-  });
-
-  container.querySelectorAll("[data-open-destination-dialog]").forEach((button) => {
-    button.addEventListener("click", handlers.onOpenDestinationDialog);
-  });
 }
 
 function bindGraphInteractions(container, handlers) {
@@ -222,21 +243,39 @@ function renderSelect(element, options, selectedValue, onChange) {
   }
 }
 
-function buildTableMarkup(boardState, destinationColumns, highlightedCell, tableFocus) {
+function buildTableMarkup(boardState, destinationColumns, highlightedCell, tableFocus, pendingDelete) {
   const destinationHeaders = destinationColumns
     .map((column) => {
       const removeId = column.kind === "DYNAMIC" ? column.dynamicGroupId : column.id;
-      const removeKind = column.kind === "DYNAMIC" ? "dynamic" : "fixed";
+      const removeKind = column.kind === "DYNAMIC" ? "dynamic" : "destination";
       const isColumnFocused = tableFocus?.type === "column" && tableFocus.id === column.id;
+      const hasOpenDelete =
+        pendingDelete &&
+        pendingDelete.kind === removeKind &&
+        pendingDelete.id === removeId &&
+        pendingDelete.scopeKey === column.id;
       return `
-        <th scope="col" class="comparison-column-header comparison-column-header--${column.kind === "DYNAMIC" ? "dynamic" : "destination"}${isColumnFocused ? " is-table-focused" : ""}" data-table-focus-key="column:${escapeHtml(column.id)}">
+        <th scope="col" class="comparison-column-header comparison-column-header--${column.kind === "DYNAMIC" ? "dynamic" : "destination"}${isColumnFocused ? " is-table-focused" : ""}${hasOpenDelete ? " is-popout-open" : ""}" data-table-focus-key="column:${escapeHtml(column.id)}">
           <div class="table-heading-topline">
-            <div class="table-heading-title">${buildCenterableLabelPill(column.rowLabel, column.kind === "DYNAMIC" ? "dynamic" : "destination", {
+            <div class="table-heading-title">${buildCenterableHeading(column.rowLabel, column.kind === "DYNAMIC" ? "dynamic" : "destination", {
               "data-center-destination-id": removeId,
-              "data-destination-kind": removeKind,
+              "data-destination-kind": column.kind === "DYNAMIC" ? "dynamic" : "fixed",
             })}</div>
             <div class="table-heading-actions table-heading-actions--inline">
-              <button class="table-mini-button" type="button" data-remove-destination-id="${escapeHtml(removeId)}" data-destination-kind="${removeKind}">Remove</button>
+              ${buildEditControl({
+                kind: removeKind,
+                id: removeId,
+                label: column.kind === "DYNAMIC" ? "Edit nearby group" : "Edit Point of Interest",
+              })}
+              ${buildDeleteControl(
+                {
+                  kind: removeKind,
+                  id: removeId,
+                  scopeKey: column.id,
+                  label: column.kind === "DYNAMIC" ? "Remove nearby group" : "Remove Point of Interest",
+                },
+                pendingDelete,
+              )}
             </div>
           </div>
           ${column.rowSubtitle ? `<div class="table-heading-subtitle">${escapeHtml(column.rowSubtitle)}</div>` : ""}
@@ -248,6 +287,11 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell, table
   const homeRows = boardState.homes
     .map((home, homeIndex) => {
       const isHomeFocused = tableFocus?.type === "home" && tableFocus.id === home.id;
+      const hasOpenDelete =
+        pendingDelete &&
+        pendingDelete.kind === "home" &&
+        pendingDelete.id === home.id &&
+        pendingDelete.scopeKey === home.id;
       const cells = destinationColumns.length
         ? destinationColumns
             .map((column) => {
@@ -272,48 +316,50 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell, table
         : "";
 
       return `
-        <tr class="${isHomeFocused ? "comparison-row-focus" : ""}" data-table-focus-key="home:${escapeHtml(home.id)}">
-          <th scope="row" class="comparison-row-header${isHomeFocused ? " is-table-focused" : ""}">
+        <tr class="comparison-home-row${isHomeFocused ? " comparison-row-focus" : ""}" data-table-focus-key="home:${escapeHtml(home.id)}" style="${escapeHtml(buildHomeColorStyle(home))}">
+          <th scope="row" class="comparison-row-header${isHomeFocused ? " is-table-focused" : ""}${hasOpenDelete ? " is-popout-open" : ""}">
             <div class="table-heading-topline">
-              <div class="table-heading-actions table-heading-actions--inline">
-                <button class="table-mini-button" type="button" data-remove-home-id="${escapeHtml(home.id)}">Remove</button>
-              </div>
-              <div class="table-heading-title">${buildCenterableLabelPill(home.location.label, "home", {
+              <div class="table-heading-title">${buildCenterableHeading(home.location.label, "home", {
                 "data-center-home-id": home.id,
               })}</div>
+              <div class="table-heading-actions table-heading-actions--inline">
+                ${buildEditControl({
+                  kind: "home",
+                  id: home.id,
+                  label: "Edit location",
+                })}
+                ${buildDeleteControl(
+                  {
+                    kind: "home",
+                    id: home.id,
+                    scopeKey: home.id,
+                    label: "Remove location",
+                  },
+                  pendingDelete,
+                )}
+              </div>
             </div>
             <div class="table-heading-subtitle">${escapeHtml(home.location.address || "")}</div>
           </th>
           ${cells}
-          ${buildTrailingAddDestinationCell()}
         </tr>
       `;
     })
     .join("");
 
-  const addHomeRow = `
-    <tr>
-      <th scope="row" class="comparison-row-header">
-        <button class="table-add-button" type="button" data-open-home-dialog>Add Candidate Place</button>
-      </th>
-      ${destinationColumns.map(() => '<td class="comparison-empty-cell"></td>').join("")}
-      ${buildTrailingAddDestinationCell()}
-    </tr>
-  `;
-
-  const bodyMarkup = `${homeRows}${addHomeRow}`;
+  const bodyMarkup = homeRows;
 
   return `
     <table class="comparison-table">
       <thead>
         <tr>
           <th scope="col" class="comparison-row-header comparison-corner-header">
-            <div class="table-heading-title">Candidate places</div>
+            <div class="corner-axis-hint">
+              <div class="corner-axis-line">Points of Interest →</div>
+              <div class="corner-axis-line">Candidate Locations ↓</div>
+            </div>
           </th>
           ${destinationHeaders}
-          <th scope="col">
-            <button class="table-add-button" type="button" data-open-destination-dialog>Add Destination</button>
-          </th>
         </tr>
       </thead>
       <tbody>
@@ -323,20 +369,76 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell, table
   `;
 }
 
-function buildTrailingAddDestinationCell() {
-  return '<td class="comparison-empty-cell"></td>';
-}
-
-function buildLabelPill(text, type) {
-  return `<span class="table-label-pill table-label-pill--${type}">${escapeHtml(text)}</span>`;
-}
-
-function buildCenterableLabelPill(text, type, attributes = {}) {
-  const serializedAttributes = Object.entries(attributes)
+function buildCenterableHeading(text, type, attributes = {}) {
+  const { style = "", ...restAttributes } = attributes;
+  const serializedAttributes = Object.entries(restAttributes)
     .map(([key, value]) => `${key}="${escapeHtml(String(value))}"`)
     .join(" ");
 
-  return `<button type="button" class="table-label-pill-button" ${serializedAttributes}>${buildLabelPill(text, type)}</button>`;
+  const attributeMarkup = serializedAttributes ? ` ${serializedAttributes}` : "";
+  const styleMarkup = style ? ` style="${escapeHtml(style)}"` : "";
+  return `<button type="button" class="table-heading-link table-heading-link--${type}"${attributeMarkup}${styleMarkup}>${escapeHtml(text)}</button>`;
+}
+
+function buildDeleteControl(descriptor, pendingDelete) {
+  const isOpen =
+    pendingDelete &&
+    pendingDelete.kind === descriptor.kind &&
+    pendingDelete.id === descriptor.id &&
+    pendingDelete.scopeKey === descriptor.scopeKey;
+
+  return `
+    <div class="table-delete-control${isOpen ? " is-open" : ""}" data-delete-control>
+      <button
+        class="table-icon-button"
+        type="button"
+        aria-label="${escapeHtml(descriptor.label)}"
+        title="${escapeHtml(descriptor.label)}"
+        data-request-delete-kind="${escapeHtml(descriptor.kind)}"
+        data-request-delete-id="${escapeHtml(descriptor.id)}"
+        data-request-delete-scope="${escapeHtml(descriptor.scopeKey)}"
+      >
+        <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M6 2.5h4l.5 1.5H13a.75.75 0 0 1 0 1.5h-.63l-.55 6.05A1.75 1.75 0 0 1 10.08 13H5.92A1.75 1.75 0 0 1 4.18 11.55L3.63 5.5H3a.75.75 0 0 1 0-1.5h2.5L6 2.5Zm.27 3.25a.65.65 0 0 1 .65.59l.3 4.3a.65.65 0 0 1-1.3.1l-.3-4.3a.65.65 0 0 1 .65-.69Zm3.46 0a.65.65 0 0 1 .65.69l-.3 4.3a.65.65 0 1 1-1.3-.1l.3-4.3a.65.65 0 0 1 .65-.59Z"></path>
+        </svg>
+      </button>
+      ${
+        isOpen
+          ? `
+            <div class="table-delete-popout" data-delete-popout>
+              <span>Delete?</span>
+              <button
+                class="table-mini-button table-mini-button--danger"
+                type="button"
+                data-confirm-delete-kind="${escapeHtml(descriptor.kind)}"
+                data-confirm-delete-id="${escapeHtml(descriptor.id)}"
+              >
+                Delete
+              </button>
+              <button class="table-mini-button" type="button" data-cancel-delete>Cancel</button>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function buildEditControl(descriptor) {
+  return `
+    <button
+      class="table-icon-button table-icon-button--edit"
+      type="button"
+      aria-label="${escapeHtml(descriptor.label)}"
+      title="${escapeHtml(descriptor.label)}"
+      data-edit-kind="${escapeHtml(descriptor.kind)}"
+      data-edit-id="${escapeHtml(descriptor.id)}"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M11.95 2.45a1.6 1.6 0 0 1 2.26 2.26l-7.1 7.1-2.96.7.7-2.96 7.1-7.1Zm-6.3 7.74-.23.98.98-.23 6.5-6.5-.75-.75-6.5 6.5Z"></path>
+      </svg>
+    </button>
+  `;
 }
 
 function buildDynamicRowBaseLabel(primaryType) {
@@ -447,9 +549,9 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
 
   const legend = boardState.homes
     .map(
-      (home, index) => `
+      (home) => `
         <div class="graph-legend-item">
-          <span class="graph-legend-swatch graph-home-color-${index % 6}"></span>
+          <span class="graph-legend-swatch" style="${escapeHtml(buildHomeColorStyle(home))}"></span>
           <span>${escapeHtml(home.location.label)}</span>
         </div>
       `,
@@ -472,7 +574,7 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
               data-home-index="${homeIndex}"
               title="${escapeHtml(boardState.homes[homeIndex].location.label)}: ${escapeHtml(cell?.formattedDuration || "Unavailable")}"
             >
-              <span class="graph-bar graph-home-color-${homeIndex % 6}" style="height:${height}%"></span>
+              <span class="graph-bar" style="${escapeHtml(`${buildHomeColorStyle(boardState.homes[homeIndex])}height:${height}%;`)}"></span>
             </button>
           `;
         })

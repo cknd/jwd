@@ -1,4 +1,4 @@
-import { createId, formatPresetLabel, normalizeDynamicPrimaryType, titleCase } from "./utils.js";
+import { createId, formatPresetLabel, pickNextHomeColorIndex } from "./utils.js";
 
 export function createDefaultBoardState() {
   const presets = [
@@ -39,7 +39,7 @@ export function sanitizeBoardState(rawState) {
     return fallback;
   }
 
-  const homes = sanitizeArray(rawState.homes).map(sanitizeCandidateHome).filter(Boolean);
+  const homes = assignMissingHomeColorIndexes(sanitizeArray(rawState.homes).map(sanitizeCandidateHome).filter(Boolean));
   const fixedDestinations = sanitizeArray(rawState.fixedDestinations).map(sanitizeFixedDestination).filter(Boolean);
   const dynamicGroups = sanitizeArray(rawState.dynamicGroups).map(sanitizeDynamicGroup).filter(Boolean);
   const presets = migrateLegacyDefaultPresets(sanitizeArray(rawState.presets).map(sanitizePreset).filter(Boolean));
@@ -92,6 +92,7 @@ export function createHome(location, override = {}) {
   return {
     id: createId("home"),
     location,
+    colorIndex: 0,
     ...override,
   };
 }
@@ -108,15 +109,15 @@ export function createFixedDestination(location, label) {
 }
 
 export function createDynamicGroup({ label, primaryType, count }) {
-  const normalizedPrimaryType = normalizeDynamicPrimaryType(primaryType);
-  if (!normalizedPrimaryType) {
+  const query = String(primaryType || "").trim();
+  if (!query) {
     throw new Error(`Unsupported dynamic destination type: ${primaryType}`);
   }
 
   return {
     id: createId("dynamic"),
-    label: label || `${titleCase(normalizedPrimaryType)} nearby`,
-    primaryType: normalizedPrimaryType,
+    label: label || query,
+    primaryType: query,
     count,
   };
 }
@@ -164,7 +165,24 @@ function sanitizeCandidateHome(value) {
   return {
     id: value.id ? String(value.id) : createId("home"),
     location,
+    colorIndex: Number.isInteger(value.colorIndex) && value.colorIndex >= 0 ? value.colorIndex : undefined,
   };
+}
+
+function assignMissingHomeColorIndexes(homes) {
+  const assigned = [];
+  homes.forEach((home) => {
+    if (Number.isInteger(home.colorIndex) && home.colorIndex >= 0) {
+      assigned.push(home);
+      return;
+    }
+
+    assigned.push({
+      ...home,
+      colorIndex: pickNextHomeColorIndex(assigned),
+    });
+  });
+  return assigned;
 }
 
 function sanitizeFixedDestination(value) {
@@ -188,8 +206,8 @@ function sanitizeDynamicGroup(value) {
     return null;
   }
 
-  const normalizedPrimaryType = normalizeDynamicPrimaryType(value.primaryType);
-  if (!normalizedPrimaryType) {
+  const query = String(value.primaryType || "").trim();
+  if (!query) {
     return null;
   }
 
@@ -200,8 +218,8 @@ function sanitizeDynamicGroup(value) {
 
   return {
     id: value.id ? String(value.id) : createId("dynamic"),
-    label: String(value.label || titleCase(normalizedPrimaryType)),
-    primaryType: normalizedPrimaryType,
+    label: String(value.label || query),
+    primaryType: query,
     count,
   };
 }

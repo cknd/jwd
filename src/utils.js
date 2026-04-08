@@ -1,4 +1,4 @@
-import { DYNAMIC_PRIMARY_TYPE_ALIASES, SUPPORTED_DYNAMIC_PRIMARY_TYPES } from "./constants.js";
+import { DYNAMIC_PRIMARY_TYPE_ALIASES, HOME_COLOR_PALETTE, SUPPORTED_DYNAMIC_PRIMARY_TYPES } from "./constants.js";
 
 export function createId(prefix = "id") {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -150,6 +150,39 @@ export function buildLocationRefFromPlace(place, fallbackLabel = "Selected place
   };
 }
 
+export function resolveHomeColor(homeRef) {
+  const paletteIndex = resolveHomeColorIndex(homeRef);
+  return HOME_COLOR_PALETTE[paletteIndex];
+}
+
+export function buildHomeColorStyle(homeRef) {
+  const tone = resolveHomeColor(homeRef);
+  return [
+    `--home-fill:${tone.fill}`,
+    `--home-border:${tone.border}`,
+    `--home-ink:${tone.ink}`,
+    `--home-bar:${tone.bar}`,
+    `--home-row-bg:${hexToRgba(tone.bar, 0.12)}`,
+    `--home-row-focus-bg:${hexToRgba(tone.bar, 0.18)}`,
+  ].join(";") + ";";
+}
+
+export function pickNextHomeColorIndex(homes) {
+  const used = new Set(
+    homes
+      .map((home) => Number(home?.colorIndex))
+      .filter((value) => Number.isInteger(value) && value >= 0),
+  );
+
+  for (let index = 0; index < HOME_COLOR_PALETTE.length; index += 1) {
+    if (!used.has(index)) {
+      return index;
+    }
+  }
+
+  return homes.length % HOME_COLOR_PALETTE.length;
+}
+
 export function serializeError(error) {
   if (!error) {
     return "Unknown error";
@@ -213,4 +246,28 @@ export function normalizeDynamicPrimaryType(rawValue) {
   }
 
   return null;
+}
+
+function resolveHomeColorIndex(homeRef) {
+  if (homeRef && typeof homeRef === "object" && Number.isInteger(homeRef.colorIndex) && homeRef.colorIndex >= 0) {
+    return homeRef.colorIndex % HOME_COLOR_PALETTE.length;
+  }
+
+  if (Number.isInteger(homeRef) && homeRef >= 0) {
+    return homeRef % HOME_COLOR_PALETTE.length;
+  }
+
+  return 0;
+}
+
+function hexToRgba(hex, alpha) {
+  const normalized = String(hex).replace("#", "");
+  if (normalized.length !== 6) {
+    return `rgba(0, 0, 0, ${alpha})`;
+  }
+
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
