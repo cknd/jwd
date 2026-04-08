@@ -41,9 +41,6 @@ export function renderComparison(elements, boardState, snapshot, highlightedCell
   const homeCount = boardState.homes.length;
   const destinationCount = destinationColumns.length;
 
-  elements.comparisonSubtitle.textContent = "";
-  elements.comparisonSubtitle.classList.add("is-hidden");
-  elements.computedAtValue.textContent = snapshot.computedAt ? formatTimestamp(snapshot.computedAt) : "Not yet computed";
   elements.comparisonStatus.textContent =
     homeCount === 0 && destinationCount === 0
       ? "Start by adding a home row or a destination column."
@@ -52,6 +49,9 @@ export function renderComparison(elements, boardState, snapshot, highlightedCell
         : destinationCount === 0
           ? "Add at least one destination column to compare travel times."
           : "";
+  elements.comparisonFootnote.textContent = snapshot.computedAt
+    ? `Google Maps Platform. Computed at ${formatTimestamp(snapshot.computedAt)}.`
+    : "";
 
   elements.comparisonTableContainer.innerHTML = buildTableMarkup(boardState, destinationColumns, highlightedCell);
   elements.comparisonGraphContainer.innerHTML = buildGraphMarkup(boardState, destinationColumns, highlightedCell);
@@ -256,7 +256,7 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell) {
                 <td>
                   <div class="comparison-cell${highlighted}">
                     <button type="button" data-row-id="${escapeHtml(column.id)}" data-home-index="${homeIndex}">
-                      <div class="cell-duration">${escapeHtml(cell?.formattedDuration || "Unavailable")}</div>
+                      <div class="cell-duration">${buildDurationDisplay(cell)}</div>
                       <div class="cell-distance">${escapeHtml(cell?.formattedDistance || "Unavailable")}</div>
                       <div class="cell-detail">${escapeHtml(cell?.destinationLabel || column.rowLabel)}</div>
                       ${cell?.routeNote ? `<div class="route-note">${escapeHtml(cell.routeNote)}</div>` : ""}
@@ -272,12 +272,12 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell) {
         <tr>
           <th scope="row" class="comparison-row-header">
             <div class="table-heading-topline">
-              <div class="table-heading-title">${buildCenterableLabelPill(home.location.label, "home", {
-                "data-center-home-id": home.id,
-              })}</div>
               <div class="table-heading-actions table-heading-actions--inline">
                 <button class="table-mini-button" type="button" data-remove-home-id="${escapeHtml(home.id)}">Remove</button>
               </div>
+              <div class="table-heading-title">${buildCenterableLabelPill(home.location.label, "home", {
+                "data-center-home-id": home.id,
+              })}</div>
             </div>
             <div class="table-heading-subtitle">${escapeHtml(home.location.address || "")}</div>
           </th>
@@ -338,6 +338,79 @@ function buildCenterableLabelPill(text, type, attributes = {}) {
 
 function buildDynamicRowBaseLabel(primaryType) {
   return `nearest ${primaryType.replaceAll("_", " ")}`;
+}
+
+function buildDurationDisplay(cell) {
+  const label = cell?.formattedDuration || "Unavailable";
+  if (!Number.isFinite(cell?.durationMillis)) {
+    return `<span>${escapeHtml(label)}</span>`;
+  }
+
+  const minutesTotal = Math.max(0, cell.durationMillis / 60000);
+  const fullHours = Math.floor(minutesTotal / 60);
+  const remainderMinutes = minutesTotal % 60;
+  const markers = [];
+
+  if (fullHours === 0) {
+    markers.push(buildDurationMarker(minutesTotal / 60));
+  } else {
+    for (let index = 0; index < fullHours; index += 1) {
+      markers.push(buildDurationMarker(1));
+    }
+    if (remainderMinutes > 0) {
+      markers.push(buildDurationMarker(remainderMinutes / 60));
+    }
+  }
+
+  return `
+    <span class="duration-display">
+      <span class="duration-markers" aria-hidden="true">${markers.join("")}</span>
+      <span class="duration-label">${escapeHtml(label)}</span>
+    </span>
+  `;
+}
+
+function buildDurationMarker(fraction) {
+  const clamped = Math.max(0, Math.min(1, fraction));
+  const radius = 5;
+  const center = 6;
+  const startX = center;
+  const startY = center - radius;
+
+  if (clamped >= 0.999) {
+    return `
+      <svg class="duration-marker" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+        <circle cx="${center}" cy="${center}" r="${radius}" class="duration-marker-base"></circle>
+        <circle cx="${center}" cy="${center}" r="${radius}" class="duration-marker-fill"></circle>
+      </svg>
+    `;
+  }
+
+  if (clamped <= 0.001) {
+    return `
+      <svg class="duration-marker" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+        <circle cx="${center}" cy="${center}" r="${radius}" class="duration-marker-base"></circle>
+      </svg>
+    `;
+  }
+
+  const endAngle = (clamped * Math.PI * 2) - (Math.PI / 2);
+  const endX = center + (radius * Math.cos(endAngle));
+  const endY = center + (radius * Math.sin(endAngle));
+  const largeArcFlag = clamped > 0.5 ? 1 : 0;
+  const sectorPath = [
+    `M ${center} ${center}`,
+    `L ${startX} ${startY}`,
+    `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${endX} ${endY}`,
+    "Z",
+  ].join(" ");
+
+  return `
+    <svg class="duration-marker" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+      <circle cx="${center}" cy="${center}" r="${radius}" class="duration-marker-base"></circle>
+      <path d="${sectorPath}" class="duration-marker-fill"></path>
+    </svg>
+  `;
 }
 
 function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {

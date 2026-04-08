@@ -233,7 +233,6 @@ textarea {
 
 .comparison-controls {
   display: flex;
-  justify-content: space-between;
   align-items: end;
   gap: 1rem;
   margin-bottom: 0.9rem;
@@ -244,12 +243,6 @@ textarea {
   flex-wrap: wrap;
   gap: 0.75rem 0.9rem;
   align-items: end;
-}
-
-.comparison-meta {
-  display: grid;
-  justify-items: end;
-  gap: 0.45rem;
 }
 
 .pane-header {
@@ -266,23 +259,6 @@ textarea {
   color: var(--ink-soft);
   font-size: 0.93rem;
   line-height: 1.45;
-}
-
-.meta-stack {
-  display: grid;
-  gap: 0.32rem;
-}
-
-.meta-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.85rem;
-  min-width: 15rem;
-  font-size: 0.85rem;
-}
-
-.meta-row span {
-  color: var(--ink-soft);
 }
 
 .map-status,
@@ -488,19 +464,19 @@ textarea {
 }
 
 .comparison-column-header--destination {
-  background: #e7f3ea;
+  background: #fff;
 }
 
 .comparison-column-header--dynamic {
-  background: #eef1f4;
+  background: #fff;
 }
 
 .comparison-table thead .comparison-column-header--destination {
-  background: #e7f3ea;
+  background: #fff;
 }
 
 .comparison-table thead .comparison-column-header--dynamic {
-  background: #eef1f4;
+  background: #fff;
 }
 
 .comparison-cell {
@@ -519,6 +495,39 @@ textarea {
 
 .cell-duration {
   font-weight: 700;
+}
+
+.duration-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.duration-markers {
+  display: inline-flex;
+  gap: 0.18rem;
+  align-items: center;
+}
+
+.duration-marker {
+  width: 0.72rem;
+  height: 0.72rem;
+  flex: 0 0 auto;
+  display: block;
+}
+
+.duration-marker-base {
+  fill: rgba(38, 92, 75, 0.08);
+  stroke: rgba(38, 92, 75, 0.28);
+  stroke-width: 1;
+}
+
+.duration-marker-fill {
+  fill: var(--accent);
+}
+
+.duration-label {
+  white-space: nowrap;
 }
 
 .cell-distance,
@@ -629,7 +638,7 @@ code {
 .table-heading-topline {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0.65rem;
 }
 
@@ -686,6 +695,15 @@ code {
 
 .comparison-empty-cell {
   background: #f8faf7;
+}
+
+.comparison-footer {
+  margin-top: 0.55rem;
+}
+
+.comparison-footnote {
+  color: var(--ink-soft);
+  font-size: 0.76rem;
 }
 
 .comparison-graph-block {
@@ -938,11 +956,6 @@ code {
 
   .comparison-filters {
     align-items: stretch;
-  }
-
-  .comparison-meta {
-    display: grid;
-    justify-items: start;
   }
 
   .comparison-table {
