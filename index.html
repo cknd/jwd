@@ -31,6 +31,16 @@
 
       <main class="workspace">
         <section class="map-pane">
+          <div id="map-pick-bar" class="map-pick-bar is-hidden" aria-live="polite">
+            <div class="map-pick-copy">
+              <strong id="map-pick-title"></strong>
+              <div id="map-pick-detail" class="map-pick-detail"></div>
+            </div>
+            <div class="map-pick-actions">
+              <button id="map-pick-confirm-button" class="primary-button" type="button">Confirm</button>
+              <button id="map-pick-cancel-button" class="secondary-button" type="button">Cancel</button>
+            </div>
+          </div>
           <div id="map-status" class="map-status">
             Enter a Google Maps API key in Settings or edit <code>config.js</code> to load the map.
           </div>
@@ -46,53 +56,50 @@
               </label>
               <div class="preset-cluster">
                 <label class="field compact-field">
-                  <span>Preset</span>
+                  <span>When are you traveling</span>
                   <select id="preset-select"></select>
                 </label>
-                <div class="preset-menu-wrap">
-                  <button id="preset-menu-button" class="secondary-button" type="button" aria-expanded="false" aria-controls="preset-menu-panel">
-                    Presets
-                  </button>
-                  <div id="preset-menu-panel" class="preset-menu-panel is-hidden">
-                    <div class="preset-menu-header">
-                      <div>
-                        <strong>Time Presets</strong>
-                      </div>
-                      <span id="presets-count" class="pill">0</span>
-                    </div>
-                    <div class="preset-menu-form">
-                      <label class="field">
-                        <span>Label</span>
-                        <input id="preset-label-input" type="text" placeholder="Weekday 08:30 departure">
-                      </label>
-                      <label class="field">
-                        <span>Kind</span>
-                        <select id="preset-kind-input">
-                          <option value="DEPARTURE">Departure</option>
-                          <option value="ARRIVAL">Arrival</option>
-                        </select>
-                      </label>
-                      <label class="field">
-                        <span>Day</span>
-                        <select id="preset-day-input">
-                          <option value="WEEKDAY">Weekday</option>
-                          <option value="SATURDAY">Saturday</option>
-                          <option value="SUNDAY">Sunday</option>
-                        </select>
-                      </label>
-                      <label class="field">
-                        <span>Time</span>
-                        <input id="preset-time-input" type="time" value="08:30">
-                      </label>
-                      <button id="add-preset-button" class="secondary-button" type="button">Add Preset</button>
-                    </div>
-                    <ul id="presets-list" class="item-list compact-list"></ul>
+                <label class="field compact-field direction-field">
+                  <span>Direction</span>
+                  <div class="direction-switch-wrap">
+                    <span class="direction-switch-label">Destinations -&gt; place</span>
+                    <button id="direction-toggle" class="direction-switch" type="button" role="switch" aria-checked="false" aria-label="Toggle travel direction">
+                      <span class="direction-switch-track">
+                        <span class="direction-switch-thumb"></span>
+                      </span>
+                    </button>
+                    <span class="direction-switch-label">Place -&gt; destinations</span>
                   </div>
+                </label>
+              </div>
+              <div class="preset-menu-wrap">
+                <div id="preset-menu-panel" class="preset-menu-panel is-hidden">
+                  <div class="preset-menu-header">
+                    <div>
+                      <strong>Edit travel time scenarios</strong>
+                    </div>
+                  </div>
+                  <div class="preset-menu-form">
+                    <label class="field">
+                      <span>Day</span>
+                      <select id="preset-day-input">
+                        <option value="WEEKDAY">Weekday</option>
+                        <option value="SATURDAY">Saturday</option>
+                        <option value="SUNDAY">Sunday</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Time</span>
+                      <input id="preset-time-input" type="time" value="08:30">
+                    </label>
+                    <button id="add-preset-button" class="secondary-button" type="button">Add</button>
+                  </div>
+                  <ul id="presets-list" class="item-list compact-list"></ul>
                 </div>
               </div>
             </div>
           </div>
-          <div id="comparison-status" class="comparison-status">Start by adding a home row or a destination column.</div>
+          <div id="comparison-status" class="comparison-status">Start by adding a place row or a destination column.</div>
           <div id="comparison-table-container" class="comparison-table-container"></div>
           <div id="comparison-graph-container" class="comparison-graph-container"></div>
           <div class="comparison-footer">
@@ -104,15 +111,16 @@
       <dialog id="home-dialog" class="app-dialog">
         <form method="dialog" class="dialog-content">
           <header class="dialog-header">
-            <h2>Add Candidate Home</h2>
+            <h2>Add Candidate Place</h2>
           </header>
           <label class="field">
             <span>Address or place</span>
-            <input id="home-search-input" type="text" autocomplete="off" placeholder="Search candidate home">
+            <input id="home-search-input" type="text" autocomplete="off" placeholder="Search candidate place">
           </label>
           <ul id="home-search-results" class="search-results is-hidden"></ul>
           <div class="dialog-actions">
-            <button id="add-home-manual-button" class="primary-button" type="button">Add Home</button>
+            <button id="select-home-on-map-button" class="secondary-button" type="button">Select on map</button>
+            <button id="add-home-manual-button" class="primary-button" type="button">Add Place</button>
             <button id="cancel-home-button" class="secondary-button" type="button">Cancel</button>
           </div>
         </form>
@@ -168,6 +176,7 @@
           </datalist>
 
           <div class="dialog-actions">
+            <button id="select-destination-on-map-button" class="secondary-button" type="button">Select on map</button>
             <button id="add-destination-button" class="primary-button" type="button">Add Destination</button>
             <button id="cancel-destination-button" class="secondary-button" type="button">Cancel</button>
           </div>

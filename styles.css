@@ -92,6 +92,7 @@ button {
   display: flex;
   gap: 0.55rem;
   align-items: end;
+  flex-wrap: wrap;
 }
 
 .preset-menu-wrap {
@@ -121,9 +122,65 @@ button {
 
 .preset-menu-form {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
   gap: 0.7rem;
   margin-bottom: 0.85rem;
+}
+
+.direction-field {
+  min-width: 21rem;
+}
+
+.direction-switch-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.5rem;
+  flex-wrap: wrap;
+}
+
+.direction-switch {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.direction-switch-track {
+  display: inline-flex;
+  align-items: center;
+  width: 2.7rem;
+  height: 1.55rem;
+  padding: 0.14rem;
+  border-radius: 999px;
+  background: #dbe6df;
+  border: 1px solid rgba(38, 92, 75, 0.2);
+  transition: background-color 120ms ease;
+}
+
+.direction-switch-thumb {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(25, 44, 33, 0.2);
+  transform: translateX(0);
+  transition: transform 120ms ease;
+}
+
+.direction-switch.is-destinations-to-home .direction-switch-track {
+  background: #cfe0d7;
+}
+
+.direction-switch.is-destinations-to-home .direction-switch-thumb {
+  transform: translateX(1.12rem);
+}
+
+.direction-switch-label {
+  color: var(--ink);
+  font-size: 0.86rem;
+  white-space: nowrap;
 }
 
 .compact-list {
@@ -225,6 +282,44 @@ textarea {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0.5rem;
+}
+
+.map-pick-bar {
+  display: inline-flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.85rem;
+  align-self: flex-start;
+  flex-wrap: wrap;
+  max-width: min(100%, 46rem);
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(38, 92, 75, 0.34);
+  border-left: 4px solid var(--accent);
+  background: #e7f3ec;
+  box-shadow: 0 6px 18px rgba(20, 53, 43, 0.1);
+}
+
+.map-pick-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: min(100%, 20rem);
+}
+
+.map-pick-copy strong {
+  color: var(--accent-strong);
+  font-size: 0.96rem;
+}
+
+.map-pick-detail {
+  color: #395246;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.map-pick-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
 }
 
 .comparison-pane {
@@ -451,12 +546,17 @@ textarea {
 
 .comparison-row-header,
 .comparison-corner-header {
-  background: #eef6fb;
+  background: #e1f0fb;
+}
+
+.comparison-row-header.is-table-focused,
+.comparison-column-header.is-table-focused {
+  box-shadow: inset 0 0 0 2px rgba(25, 82, 61, 0.44);
 }
 
 .comparison-table thead .comparison-row-header,
 .comparison-table thead .comparison-corner-header {
-  background: #eef6fb;
+  background: #e1f0fb;
 }
 
 .comparison-column-header {
@@ -539,9 +639,15 @@ textarea {
 }
 
 .comparison-cell.is-highlighted {
-  outline: 2px solid rgba(38, 92, 75, 0.32);
+  outline: 2px solid rgba(25, 82, 61, 0.48);
   outline-offset: 6px;
   border-radius: 10px;
+  background: rgba(25, 82, 61, 0.08);
+}
+
+.comparison-row-focus td,
+.comparison-column-focus {
+  background: rgba(25, 82, 61, 0.1);
 }
 
 .marker-legend {
@@ -912,33 +1018,41 @@ code {
 
 .table-label-pill-button:hover .table-label-pill,
 .table-label-pill-button:focus-visible .table-label-pill {
-  box-shadow: 0 0 0 2px rgba(38, 92, 75, 0.18);
+  box-shadow: 0 0 0 2px rgba(25, 82, 61, 0.28);
 }
 
 .map-marker-pill {
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(25, 44, 33, 0.12);
+  box-shadow: 0 5px 14px rgba(25, 44, 33, 0.18);
+  min-width: 1.35rem;
+  justify-content: center;
+  padding: 0.18rem 0.42rem;
+  font-weight: 700;
+}
+
+.map-marker-pill--draft {
+  box-shadow: 0 0 0 2px rgba(20, 53, 43, 0.16), 0 6px 16px rgba(25, 44, 33, 0.22);
 }
 
 .map-marker-pill--home,
 .table-label-pill--home {
-  background: #dce9ff;
-  border-color: #9db8ea;
-  color: #1a4f94;
+  background: #c9deff;
+  border-color: #6d9fe6;
+  color: #0f4590;
 }
 
 .map-marker-pill--destination,
 .table-label-pill--destination {
-  background: #dceedd;
-  border-color: #9dcaa4;
-  color: #245d2f;
+  background: #cbe8cf;
+  border-color: #6cab77;
+  color: #154f25;
 }
 
 .map-marker-pill--dynamic,
 .table-label-pill--dynamic {
-  background: #ebedf0;
-  border-color: #c1c7ce;
-  color: #4e5a67;
+  background: #dde2e7;
+  border-color: #98a4b0;
+  color: #37424d;
 }
 
 @media (max-width: 1080px) {
@@ -956,6 +1070,16 @@ code {
 
   .comparison-filters {
     align-items: stretch;
+  }
+
+  .map-pick-bar {
+    flex-direction: column;
+    align-items: stretch;
+    max-width: 100%;
+  }
+
+  .direction-field {
+    min-width: 0;
   }
 
   .comparison-table {

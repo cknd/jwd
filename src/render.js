@@ -1,17 +1,13 @@
-import { DAY_TYPES, PRESET_KINDS, TRAVEL_MODES } from "./constants.js";
-import { escapeHtml, formatDuration, formatTimestamp } from "./utils.js";
+import { DAY_TYPES, ROUTE_DIRECTIONS, TRAVEL_MODES } from "./constants.js";
+import { escapeHtml, formatDuration, formatPresetLabel, formatTimestamp } from "./utils.js";
 
 export function renderPresetMenu(elements, boardState, handlers) {
-  updateCount(elements.presetsCount, boardState.presets.length);
-
   renderGenericList(
     elements.presetsList,
     boardState.presets,
     (preset) => ({
-      title: preset.label,
-      subtitle: `${findLabel(PRESET_KINDS, preset.kind)} • ${findLabel(DAY_TYPES, preset.dayType)} • ${preset.timeLocal}`,
+      title: formatPresetLabel(preset),
       actions: [
-        { label: "Use", action: () => handlers.onSelectPreset(preset.id) },
         ...(boardState.presets.length > 1 ? [{ label: "Remove", danger: true, action: () => handlers.onRemovePreset(preset.id) }] : []),
       ],
     }),
@@ -28,12 +24,24 @@ export function renderModeAndPresetSelectors(elements, boardState, handlers) {
 
   renderSelect(
     elements.presetSelect,
-    boardState.presets.map((preset) => ({ value: preset.id, label: preset.label })),
+    [
+      ...boardState.presets.map((preset) => ({ value: preset.id, label: formatPresetLabel(preset) })),
+      { value: "__CUSTOMIZE__", label: "Customize..." },
+    ],
     boardState.selectedPresetId,
-    (value) => handlers.onSelectPreset(value),
+    (value) => {
+      if (value === "__CUSTOMIZE__") {
+        elements.presetSelect.value = boardState.selectedPresetId;
+        handlers.onOpenPresetMenu();
+        return;
+      }
+      handlers.onSelectPreset(value);
+    },
   );
 
-  elements.presetMenuButton.setAttribute("aria-expanded", String(!elements.presetMenuPanel.classList.contains("is-hidden")));
+  const destinationsToHome = boardState.selectedDirection === ROUTE_DIRECTIONS[1].value;
+  elements.directionToggle.classList.toggle("is-destinations-to-home", destinationsToHome);
+  elements.directionToggle.setAttribute("aria-checked", String(destinationsToHome));
 }
 
 export function renderComparison(elements, boardState, snapshot, highlightedCell, handlers) {
@@ -43,9 +51,9 @@ export function renderComparison(elements, boardState, snapshot, highlightedCell
 
   elements.comparisonStatus.textContent =
     homeCount === 0 && destinationCount === 0
-      ? "Start by adding a home row or a destination column."
+      ? "Start by adding a place row or a destination column."
       : homeCount === 0
-        ? "Add at least one home row to compare travel times."
+        ? "Add at least one place row to compare travel times."
         : destinationCount === 0
           ? "Add at least one destination column to compare travel times."
           : "";
@@ -53,7 +61,7 @@ export function renderComparison(elements, boardState, snapshot, highlightedCell
     ? `Google Maps Platform. Computed at ${formatTimestamp(snapshot.computedAt)}.`
     : "";
 
-  elements.comparisonTableContainer.innerHTML = buildTableMarkup(boardState, destinationColumns, highlightedCell);
+  elements.comparisonTableContainer.innerHTML = buildTableMarkup(boardState, destinationColumns, highlightedCell, handlers.tableFocus);
   elements.comparisonGraphContainer.innerHTML = buildGraphMarkup(boardState, destinationColumns, highlightedCell);
 
   bindTableInteractions(elements.comparisonTableContainer, handlers);
@@ -214,21 +222,14 @@ function renderSelect(element, options, selectedValue, onChange) {
   }
 }
 
-function updateCount(element, count) {
-  element.textContent = String(count);
-}
-
-function findLabel(collection, value) {
-  return collection.find((entry) => entry.value === value)?.label || value;
-}
-
-function buildTableMarkup(boardState, destinationColumns, highlightedCell) {
+function buildTableMarkup(boardState, destinationColumns, highlightedCell, tableFocus) {
   const destinationHeaders = destinationColumns
     .map((column) => {
       const removeId = column.kind === "DYNAMIC" ? column.dynamicGroupId : column.id;
       const removeKind = column.kind === "DYNAMIC" ? "dynamic" : "fixed";
+      const isColumnFocused = tableFocus?.type === "column" && tableFocus.id === column.id;
       return `
-        <th scope="col" class="comparison-column-header comparison-column-header--${column.kind === "DYNAMIC" ? "dynamic" : "destination"}">
+        <th scope="col" class="comparison-column-header comparison-column-header--${column.kind === "DYNAMIC" ? "dynamic" : "destination"}${isColumnFocused ? " is-table-focused" : ""}" data-table-focus-key="column:${escapeHtml(column.id)}">
           <div class="table-heading-topline">
             <div class="table-heading-title">${buildCenterableLabelPill(column.rowLabel, column.kind === "DYNAMIC" ? "dynamic" : "destination", {
               "data-center-destination-id": removeId,
@@ -246,14 +247,16 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell) {
 
   const homeRows = boardState.homes
     .map((home, homeIndex) => {
+      const isHomeFocused = tableFocus?.type === "home" && tableFocus.id === home.id;
       const cells = destinationColumns.length
         ? destinationColumns
             .map((column) => {
               const cell = column.cells[homeIndex];
               const highlighted =
                 highlightedCell && highlightedCell.rowId === column.id && highlightedCell.homeIndex === homeIndex ? " is-highlighted" : "";
+              const columnFocused = tableFocus?.type === "column" && tableFocus.id === column.id ? " comparison-column-focus" : "";
               return `
-                <td>
+                <td class="${columnFocused.trim()}">
                   <div class="comparison-cell${highlighted}">
                     <button type="button" data-row-id="${escapeHtml(column.id)}" data-home-index="${homeIndex}">
                       <div class="cell-duration">${buildDurationDisplay(cell)}</div>
@@ -269,8 +272,8 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell) {
         : "";
 
       return `
-        <tr>
-          <th scope="row" class="comparison-row-header">
+        <tr class="${isHomeFocused ? "comparison-row-focus" : ""}" data-table-focus-key="home:${escapeHtml(home.id)}">
+          <th scope="row" class="comparison-row-header${isHomeFocused ? " is-table-focused" : ""}">
             <div class="table-heading-topline">
               <div class="table-heading-actions table-heading-actions--inline">
                 <button class="table-mini-button" type="button" data-remove-home-id="${escapeHtml(home.id)}">Remove</button>
@@ -291,7 +294,7 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell) {
   const addHomeRow = `
     <tr>
       <th scope="row" class="comparison-row-header">
-        <button class="table-add-button" type="button" data-open-home-dialog>Add Candidate Home</button>
+        <button class="table-add-button" type="button" data-open-home-dialog>Add Candidate Place</button>
       </th>
       ${destinationColumns.map(() => '<td class="comparison-empty-cell"></td>').join("")}
       ${buildTrailingAddDestinationCell()}
@@ -305,7 +308,7 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell) {
       <thead>
         <tr>
           <th scope="col" class="comparison-row-header comparison-corner-header">
-            <div class="table-heading-title">Candidate homes</div>
+            <div class="table-heading-title">Candidate places</div>
           </th>
           ${destinationHeaders}
           <th scope="col">

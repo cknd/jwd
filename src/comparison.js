@@ -24,7 +24,9 @@ export async function buildFixedRows(boardState, provider, preset) {
 
   const homes = boardState.homes.map((home) => home.location);
   const destinations = boardState.fixedDestinations.map((destination) => destination.location);
-  const matrix = await provider.computeMatrix(homes, destinations, boardState.selectedMode, preset);
+  const matrix = boardState.selectedDirection === "HOME_TO_DESTINATIONS"
+    ? await provider.computeMatrix(homes, destinations, boardState.selectedMode, preset)
+    : await provider.computeMatrix(destinations, homes, boardState.selectedMode, preset);
 
   return boardState.fixedDestinations.map((destination, destinationIndex) => ({
     id: destination.id,
@@ -35,7 +37,14 @@ export async function buildFixedRows(boardState, provider, preset) {
     placeLabel: destination.label,
     location: destination.location,
     cells: boardState.homes.map((home, homeIndex) =>
-      normalizeCell(home, destination.location, matrix[homeIndex][destinationIndex], destination.label),
+      normalizeCell(
+        home,
+        destination.location,
+        boardState.selectedDirection === "HOME_TO_DESTINATIONS"
+          ? matrix[homeIndex][destinationIndex]
+          : matrix[destinationIndex][homeIndex],
+        destination.label,
+      ),
     ),
   }));
 }
@@ -49,7 +58,13 @@ export async function buildDynamicRows(boardState, provider, preset) {
       boardState.homes.map(async (home) => {
         const nearbyPlaces = await provider.searchNearby(home, dynamicGroup);
         const routeItems = nearbyPlaces.length
-          ? await provider.computeRoutes(home.location, nearbyPlaces, boardState.selectedMode, preset)
+          ? await Promise.all(
+              nearbyPlaces.map((place) =>
+                boardState.selectedDirection === "HOME_TO_DESTINATIONS"
+                  ? provider.computeRoutes(home.location, [place], boardState.selectedMode, preset).then((items) => items[0])
+                  : provider.computeRoutes(place, [home.location], boardState.selectedMode, preset).then((items) => items[0]),
+              ),
+            )
           : [];
 
         return {
@@ -104,6 +119,7 @@ export function collectMapDynamicRows(snapshot, boardState) {
       rows.push({
         id: `${row.id}-${homeId}`,
         homeId,
+        rowId: row.id,
         location: cell.destinationLocation,
         placeLabel: cell.destinationLabel,
       });

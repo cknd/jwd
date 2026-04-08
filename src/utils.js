@@ -114,6 +114,11 @@ export function nextDateForPreset(preset, now = new Date()) {
   return candidate;
 }
 
+export function formatPresetLabel(preset) {
+  const [hours, minutes] = String(preset.timeLocal).split(":");
+  return `${titleCase(preset.dayType.toLowerCase())} ${Number(hours)}:${minutes}`;
+}
+
 function resolveAllowedDays(dayType) {
   if (dayType === "SATURDAY") {
     return [6];

@@ -1,20 +1,21 @@
-import { createId, normalizeDynamicPrimaryType, titleCase } from "./utils.js";
+import { createId, formatPresetLabel, normalizeDynamicPrimaryType, titleCase } from "./utils.js";
 
 export function createDefaultBoardState() {
   const presets = [
     {
       id: createId("preset"),
-      label: "Weekday 08:30 departure",
-      kind: "DEPARTURE",
       dayType: "WEEKDAY",
       timeLocal: "08:30",
     },
     {
       id: createId("preset"),
-      label: "Weekday 17:30 departure",
-      kind: "DEPARTURE",
       dayType: "WEEKDAY",
       timeLocal: "17:30",
+    },
+    {
+      id: createId("preset"),
+      dayType: "SUNDAY",
+      timeLocal: "11:00",
     },
   ];
 
@@ -26,6 +27,7 @@ export function createDefaultBoardState() {
     presets,
     selectedPresetId: presets[0].id,
     selectedMode: "TRANSIT",
+    selectedDirection: "HOME_TO_DESTINATIONS",
     highlightedHomeId: undefined,
     view: "TABLE",
   };
@@ -40,7 +42,7 @@ export function sanitizeBoardState(rawState) {
   const homes = sanitizeArray(rawState.homes).map(sanitizeCandidateHome).filter(Boolean);
   const fixedDestinations = sanitizeArray(rawState.fixedDestinations).map(sanitizeFixedDestination).filter(Boolean);
   const dynamicGroups = sanitizeArray(rawState.dynamicGroups).map(sanitizeDynamicGroup).filter(Boolean);
-  const presets = sanitizeArray(rawState.presets).map(sanitizePreset).filter(Boolean);
+  const presets = migrateLegacyDefaultPresets(sanitizeArray(rawState.presets).map(sanitizePreset).filter(Boolean));
   const selectedPresetId = presets.some((preset) => preset.id === rawState.selectedPresetId)
     ? rawState.selectedPresetId
     : presets[0]?.id || fallback.selectedPresetId;
@@ -55,9 +57,35 @@ export function sanitizeBoardState(rawState) {
     selectedMode: ["DRIVING", "TRANSIT", "BICYCLING", "WALKING"].includes(rawState.selectedMode)
       ? rawState.selectedMode
       : fallback.selectedMode,
+    selectedDirection: ["HOME_TO_DESTINATIONS", "DESTINATIONS_TO_HOME"].includes(rawState.selectedDirection)
+      ? rawState.selectedDirection
+      : fallback.selectedDirection,
     highlightedHomeId: homes.some((home) => home.id === rawState.highlightedHomeId) ? rawState.highlightedHomeId : homes[0]?.id,
     view: rawState.view === "GRAPH" ? "GRAPH" : "TABLE",
   };
+}
+
+function migrateLegacyDefaultPresets(presets) {
+  if (presets.length !== 2) {
+    return presets;
+  }
+
+  const signatures = presets
+    .map((preset) => `${preset.dayType}:${preset.timeLocal}`)
+    .sort()
+    .join("|");
+
+  if (signatures !== "WEEKDAY:08:30|WEEKDAY:17:30") {
+    return presets;
+  }
+
+  return [
+    ...presets,
+    createPreset({
+      dayType: "SUNDAY",
+      timeLocal: "11:00",
+    }),
+  ];
 }
 
 export function createHome(location, override = {}) {
@@ -93,13 +121,13 @@ export function createDynamicGroup({ label, primaryType, count }) {
   };
 }
 
-export function createPreset({ label, kind, dayType, timeLocal }) {
+export function createPreset({ dayType, timeLocal }, override = {}) {
   return {
     id: createId("preset"),
-    label: label || `${titleCase(dayType.toLowerCase())} ${timeLocal} ${kind.toLowerCase()}`,
-    kind,
+    label: formatPresetLabel({ dayType, timeLocal }),
     dayType,
     timeLocal,
+    ...override,
   };
 }
 
@@ -183,7 +211,7 @@ function sanitizePreset(value) {
     return null;
   }
 
-  if (!["DEPARTURE", "ARRIVAL"].includes(value.kind) || !["WEEKDAY", "SATURDAY", "SUNDAY"].includes(value.dayType)) {
+  if (!["WEEKDAY", "SATURDAY", "SUNDAY"].includes(value.dayType)) {
     return null;
   }
 
@@ -193,8 +221,7 @@ function sanitizePreset(value) {
 
   return {
     id: value.id ? String(value.id) : createId("preset"),
-    label: String(value.label || `${value.dayType} ${value.timeLocal}`),
-    kind: value.kind,
+    label: String(value.label || formatPresetLabel(value)),
     dayType: value.dayType,
     timeLocal: value.timeLocal,
   };

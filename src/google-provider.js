@@ -13,6 +13,7 @@ export class GoogleTravelProvider {
     this.highlightCircle = null;
     this.routePolylines = [];
     this.highlightRequestId = 0;
+    this.draftMarker = null;
     this.routeCache = new Map(Object.entries(loadCache(STORAGE_KEYS.routeCache)));
     this.nearbyCache = new Map(Object.entries(loadCache(STORAGE_KEYS.nearbyCache)));
     this.placeSelections = {
@@ -68,10 +69,55 @@ export class GoogleTravelProvider {
     this.placeSelections[kind] = null;
   }
 
+  showDraftLocation(locationRef, type = "home") {
+    if (!this.map || !locationRef) {
+      return;
+    }
+
+    const content = this.#buildMarkerContent(
+      {
+        label: type === "home" ? "P" : "D",
+        title: locationRef.label,
+        type,
+      },
+      null,
+      true,
+    );
+
+    if (!this.draftMarker) {
+      this.draftMarker = new this.AdvancedMarkerElementClass({
+        map: this.map,
+        position: locationRef,
+        title: locationRef.label,
+        content,
+        zIndex: this.#getMarkerZIndex(type) + 5,
+      });
+      return;
+    }
+
+    this.draftMarker.position = locationRef;
+    this.draftMarker.title = locationRef.label;
+    this.draftMarker.content = content;
+    this.draftMarker.zIndex = this.#getMarkerZIndex(type) + 5;
+  }
+
+  clearDraftLocation() {
+    if (!this.draftMarker) {
+      return;
+    }
+
+    this.draftMarker.map = null;
+    this.draftMarker = null;
+  }
+
   setMapClickMode(mode, onResolvedLocation) {
     if (this.mapClickHandler) {
       this.mapClickHandler.remove();
       this.mapClickHandler = null;
+    }
+
+    if (this.map) {
+      this.map.setOptions({ draggableCursor: mode === "NONE" ? null : "crosshair" });
     }
 
     if (mode === "NONE") {
@@ -79,9 +125,13 @@ export class GoogleTravelProvider {
     }
 
     this.mapClickHandler = this.map.addListener("click", async (event) => {
-      const location = toPlainLatLng(event.latLng);
-      const resolved = await this.reverseGeocode(location);
-      onResolvedLocation(resolved, mode);
+      try {
+        const location = toPlainLatLng(event.latLng);
+        const resolved = await this.reverseGeocode(location);
+        onResolvedLocation?.(resolved, mode);
+      } catch (error) {
+        onResolvedLocation?.(null, mode, error);
+      }
     });
   }
 
@@ -227,33 +277,36 @@ export class GoogleTravelProvider {
     }
 
     const entries = [];
-    boardState.homes.forEach((home, index) => {
+    boardState.homes.forEach((home) => {
       entries.push({
         key: home.id,
         position: home.location,
-        label: `H${index + 1}`,
+        label: "P",
         title: home.location.label,
         type: "home",
+        target: { type: "home", id: home.id },
       });
     });
 
-    boardState.fixedDestinations.forEach((destination, index) => {
+    boardState.fixedDestinations.forEach((destination) => {
       entries.push({
         key: destination.id,
         position: destination.location,
-        label: `D${index + 1}`,
+        label: "D",
         title: destination.label,
         type: "destination",
+        target: { type: "column", id: destination.id },
       });
     });
 
-    dynamicRows.forEach((row, index) => {
+    dynamicRows.forEach((row) => {
       entries.push({
         key: row.id,
         position: row.location,
-        label: `N${index + 1}`,
+        label: "N",
         title: row.placeLabel,
         type: "dynamic",
+        target: { type: "column", id: row.rowId },
       });
     });
 
@@ -272,14 +325,14 @@ export class GoogleTravelProvider {
           map: this.map,
           position: entry.position,
           title: entry.title,
-          content: this.#buildMarkerContent(entry),
+          content: this.#buildMarkerContent(entry, comparisonData?.onSelectMarker),
           zIndex: this.#getMarkerZIndex(entry.type),
         });
         this.markers.set(entry.key, marker);
       } else {
         marker.position = entry.position;
         marker.title = entry.title;
-        marker.content = this.#buildMarkerContent(entry);
+        marker.content = this.#buildMarkerContent(entry, comparisonData?.onSelectMarker);
         marker.zIndex = this.#getMarkerZIndex(entry.type);
       }
     });
@@ -287,7 +340,7 @@ export class GoogleTravelProvider {
     const bounds = new this.google.maps.LatLngBounds();
     entries.forEach((entry) => bounds.extend(entry.position));
 
-    if (!bounds.isEmpty()) {
+    if (!bounds.isEmpty() && !comparisonData?.preserveViewport) {
       this.map.fitBounds(bounds, 64);
     }
 
@@ -299,7 +352,7 @@ export class GoogleTravelProvider {
   }
 
   async highlightComparisonCell(highlightData) {
-    const { homeLocation, destinationLocation, mode, preset } = highlightData;
+    const { homeLocation, destinationLocation, mode, preset, direction } = highlightData;
     if (!this.map || !homeLocation || !destinationLocation) {
       return;
     }
@@ -311,11 +364,13 @@ export class GoogleTravelProvider {
 
     const requestId = ++this.highlightRequestId;
     this.#clearRoutePolylines();
+    const origin = direction === "DESTINATIONS_TO_HOME" ? destinationLocation : homeLocation;
+    const destination = direction === "DESTINATIONS_TO_HOME" ? homeLocation : destinationLocation;
 
     try {
       const request = {
-        origin: this.#buildWaypoint(homeLocation),
-        destination: this.#buildWaypoint(destinationLocation),
+        origin: this.#buildWaypoint(origin),
+        destination: this.#buildWaypoint(destination),
         travelMode: mode,
         fields: this.#buildRouteFields(mode),
         ...this.#buildTimingOptions(mode, preset),
@@ -353,7 +408,7 @@ export class GoogleTravelProvider {
       });
     }
 
-    this.highlightCircle.setPath([homeLocation, destinationLocation]);
+    this.highlightCircle.setPath([origin, destination]);
   }
 
   clearHighlight() {
@@ -388,11 +443,6 @@ export class GoogleTravelProvider {
 
   #buildTimingOptions(mode, preset) {
     const targetDate = nextDateForPreset(preset);
-
-    if (preset.kind === "ARRIVAL") {
-      return { arrivalTime: targetDate };
-    }
-
     return { departureTime: targetDate };
   }
 
@@ -416,25 +466,17 @@ export class GoogleTravelProvider {
     return ["path"];
   }
 
-  #buildMarkerContent(entry) {
+  #buildMarkerContent(entry, onSelectMarker, isDraft = false) {
     const wrapper = document.createElement("button");
     wrapper.type = "button";
-    wrapper.className = `map-marker-pill map-marker-pill--${entry.type}`;
+    wrapper.className = `map-marker-pill map-marker-pill--${entry.type}${isDraft ? " map-marker-pill--draft" : ""}`;
     wrapper.title = entry.title;
-    wrapper.textContent = this.#truncateLabel(entry.title);
+    wrapper.textContent = entry.label;
     wrapper.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.map.panTo(entry.position);
+      onSelectMarker?.(entry.target);
     });
     return wrapper;
-  }
-
-  #truncateLabel(text, maxLength = 8) {
-    if (!text || text.length <= maxLength) {
-      return text;
-    }
-
-    return `${text.slice(0, maxLength - 1)}…`;
   }
 
   #getMarkerZIndex(type) {

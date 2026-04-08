@@ -1,11 +1,11 @@
 # Journey Worth Doing
 
-Static location-comparison web app for evaluating candidate homes against fixed and dynamic destinations by travel time.
+Static location-comparison web app for evaluating candidate places against fixed and dynamic destinations by travel time.
 
 ## What is implemented
 
-- Candidate homes by autocomplete or map click
-- Fixed destinations by autocomplete or map click
+- Candidate places by address search or explicit map selection
+- Fixed destinations by address search or explicit map selection
 - Dynamic nearby groups such as `supermarket` or `restaurant`
 - Travel-time comparison for `DRIVING`, `TRANSIT`, `BICYCLING`, and `WALKING`
 - Reusable time presets

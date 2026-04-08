@@ -21,9 +21,9 @@ export const DAY_TYPES = [
   { value: "SUNDAY", label: "Sunday" },
 ];
 
-export const PRESET_KINDS = [
-  { value: "DEPARTURE", label: "Departure" },
-  { value: "ARRIVAL", label: "Arrival" },
+export const ROUTE_DIRECTIONS = [
+  { value: "HOME_TO_DESTINATIONS", label: "Place -> destinations" },
+  { value: "DESTINATIONS_TO_HOME", label: "Destinations -> place" },
 ];
 
 export const MAP_ADD_MODES = {

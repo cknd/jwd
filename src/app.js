@@ -24,7 +24,10 @@ let runtimeConfig = {
 let provider = null;
 let comparisonSnapshot = emptySnapshot();
 let highlightedCell = null;
+let tableFocus = null;
 let mapReady = false;
+let preserveMapViewport = false;
+let activeMapPick = null;
 let selectedPlaces = {
   home: null,
   destination: null,
@@ -66,24 +69,28 @@ async function hydrateBoardState() {
 function bindGlobalEvents() {
   elements.settingsButton.addEventListener("click", openSettings);
   elements.shareButton.addEventListener("click", openShareDialog);
-  elements.presetMenuButton.addEventListener("click", (event) => {
-    event.stopPropagation();
-    elements.presetMenuPanel.classList.toggle("is-hidden");
-    renderAll();
-  });
   elements.presetMenuPanel.addEventListener("click", (event) => {
     event.stopPropagation();
   });
+  elements.directionToggle.addEventListener("click", () =>
+    updateBoardState({
+      selectedDirection:
+        boardState.selectedDirection === "HOME_TO_DESTINATIONS" ? "DESTINATIONS_TO_HOME" : "HOME_TO_DESTINATIONS",
+    }),
+  );
   elements.clearShareButton.addEventListener("click", clearShareHash);
   elements.openHomeDialogButton?.addEventListener("click", openHomeDialog);
   elements.openDestinationDialogButton?.addEventListener("click", openDestinationDialog);
-  document.addEventListener("click", () => {
+  document.addEventListener("click", (event) => {
     if (!elements.presetMenuPanel.classList.contains("is-hidden")) {
       elements.presetMenuPanel.classList.add("is-hidden");
       renderAll();
     }
     hideSearchResults("home");
     hideSearchResults("destination");
+    if (shouldClearSelectionOnDocumentClick(event.target)) {
+      clearActiveSelection();
+    }
   });
 
   bindLocationSearch("home", elements.homeSearchInput, elements.homeSearchResults, (location) => {
@@ -96,6 +103,10 @@ function bindGlobalEvents() {
   elements.cancelHomeButton.addEventListener("click", () => elements.homeDialog.close());
   elements.cancelDestinationButton.addEventListener("click", () => elements.destinationDialog.close());
   elements.destinationKindSelect.addEventListener("change", syncDestinationDialogMode);
+  elements.selectHomeOnMapButton.addEventListener("click", () => startMapPick("home"));
+  elements.selectDestinationOnMapButton.addEventListener("click", () => startMapPick("destination"));
+  elements.mapPickConfirmButton.addEventListener("click", confirmMapPick);
+  elements.mapPickCancelButton.addEventListener("click", cancelMapPick);
 
   elements.addHomeManualButton.addEventListener("click", () => {
     if (!provider) {
@@ -107,18 +118,18 @@ function bindGlobalEvents() {
       resolveFirstSearchResult("home")
         .then((location) => {
           if (!location) {
-            setMessage("Type an address and choose a result first.", "warning");
+            setMessage("Type an address and choose a result, or use Select on map.", "warning");
             return;
           }
 
-          addHome(location);
+          addPlace(location);
           clearSearchSelection("home");
         })
-        .catch((error) => setMessage(`Home lookup failed: ${serializeError(error)}`, "error"));
+        .catch((error) => setMessage(`Place lookup failed: ${serializeError(error)}`, "error"));
       return;
     }
 
-    addHome(selectedPlaces.home);
+    addPlace(selectedPlaces.home);
     clearSearchSelection("home");
     elements.homeDialog.close();
   });
@@ -150,7 +161,7 @@ function bindGlobalEvents() {
       resolveFirstSearchResult("destination")
         .then((location) => {
           if (!location) {
-            setMessage("Type an address and choose a result first.", "warning");
+            setMessage("Type an address and choose a result, or use Select on map.", "warning");
             return;
           }
 
@@ -173,8 +184,6 @@ function bindGlobalEvents() {
 
   elements.addPresetButton.addEventListener("click", () => {
     const preset = createPreset({
-      label: elements.presetLabelInput.value.trim(),
-      kind: elements.presetKindInput.value,
       dayType: elements.presetDayInput.value,
       timeLocal: elements.presetTimeInput.value,
     });
@@ -184,7 +193,7 @@ function bindGlobalEvents() {
       selectedPresetId: preset.id,
     });
 
-    elements.presetLabelInput.value = "";
+    elements.presetDayInput.value = "WEEKDAY";
     elements.presetTimeInput.value = "08:30";
   });
 
@@ -311,7 +320,7 @@ function updateBoardState(partialState, options = {}) {
   }
 }
 
-function addHome(location) {
+function addPlace(location) {
   const homes = [...boardState.homes, createHome(location)];
   updateBoardState({
     homes,
@@ -380,7 +389,7 @@ function bindLocationSearch(kind, inputElement, resultsElement, onSelect) {
     onSelect(location);
     inputElement.value = location.address || location.label;
     hideSearchResults(kind);
-    setMessage(`Selected ${kind}: ${location.label}`, "");
+    setMessage(`Selected ${getLocationKindLabel(kind)}: ${location.label}`, "");
   });
 
   resultsElement.addEventListener("click", (event) => {
@@ -442,7 +451,7 @@ function renderSearchResults(kind) {
       selectedPlaces[kind] = location;
       inputElement.value = location.address || location.label;
       hideSearchResults(kind);
-      setMessage(`Selected ${kind}: ${location.label}`, "");
+      setMessage(`Selected ${getLocationKindLabel(kind)}: ${location.label}`, "");
     });
     item.append(button);
     listElement.append(item);
@@ -480,16 +489,19 @@ function syncDestinationDialogMode() {
   const isDynamic = elements.destinationKindSelect.value === "DYNAMIC";
   elements.fixedDestinationFields.classList.toggle("is-hidden", isDynamic);
   elements.dynamicDestinationFields.classList.toggle("is-hidden", !isDynamic);
+  elements.selectDestinationOnMapButton.classList.toggle("is-hidden", isDynamic);
   elements.addDestinationButton.textContent = isDynamic ? "Add Dynamic Destination" : "Add Destination";
 }
 
 function openHomeDialog() {
+  cancelMapPick();
   clearSearchSelection("home");
   elements.homeDialog.showModal();
   elements.homeSearchInput.focus();
 }
 
 function openDestinationDialog() {
+  cancelMapPick();
   clearDestinationDialog();
   elements.destinationDialog.showModal();
   elements.destinationKindSelect.focus();
@@ -534,10 +546,10 @@ function renderAll() {
   renderModeAndPresetSelectors(elements, boardState, {
     onSelectMode: (value) => updateBoardState({ selectedMode: value }),
     onSelectPreset: (value) => updateBoardState({ selectedPresetId: value }),
+    onOpenPresetMenu: openPresetMenu,
   });
 
   renderPresetMenu(elements, boardState, {
-    onSelectPreset: (presetId) => updateBoardState({ selectedPresetId: presetId }),
     onRemovePreset: (presetId) =>
       updateBoardState({
         presets: boardState.presets.filter((preset) => preset.id !== presetId),
@@ -549,6 +561,7 @@ function renderAll() {
   });
 
   renderComparison(elements, boardState, comparisonSnapshot, highlightedCell, {
+    tableFocus,
     onSelectCell: handleCellSelection,
     onCenterHome: centerHomeById,
     onCenterDestination: centerDestinationById,
@@ -560,6 +573,7 @@ function renderAll() {
     onOpenHomeDialog: openHomeDialog,
     onOpenDestinationDialog: openDestinationDialog,
   });
+  renderMapPickBar();
   renderMap();
 }
 
@@ -571,24 +585,148 @@ function renderMap() {
   const selectedPreset = boardState.presets.find((preset) => preset.id === boardState.selectedPresetId);
   const dynamicRows = collectMapDynamicRows(comparisonSnapshot, boardState);
   provider.renderMarkers(boardState, dynamicRows, {
+    preserveViewport: preserveMapViewport,
+    onSelectMarker: handleMarkerSelection,
     highlight: highlightedCell
       ? {
           homeLocation: boardState.homes[highlightedCell.homeIndex]?.location,
           destinationLocation: findDestinationLocation(highlightedCell),
           mode: boardState.selectedMode,
           preset: selectedPreset,
+          direction: boardState.selectedDirection,
         }
       : null,
   });
+  preserveMapViewport = false;
 }
 
 function handleCellSelection(rowId, homeIndex) {
   highlightedCell = { rowId, homeIndex };
+  tableFocus = null;
   const home = boardState.homes[homeIndex];
   if (home) {
     boardState.highlightedHomeId = home.id;
     saveBoardState(boardState);
   }
+  renderAll();
+}
+
+function handleMarkerSelection(target) {
+  if (!target) {
+    return;
+  }
+
+  highlightedCell = null;
+  tableFocus = target;
+  preserveMapViewport = true;
+  if (target.type === "home") {
+    const home = boardState.homes.find((item) => item.id === target.id);
+    if (home) {
+      boardState.highlightedHomeId = home.id;
+      saveBoardState(boardState);
+    }
+  }
+  renderAll();
+}
+
+function startMapPick(kind) {
+  if (!provider || !mapReady) {
+    setMessage("Load the map provider first by saving a working API key in Settings.", "warning");
+    return;
+  }
+
+  if (kind === "destination" && elements.destinationKindSelect.value === "DYNAMIC") {
+    setMessage("Dynamic destinations are query-based and cannot be pinned on the map.", "warning");
+    return;
+  }
+
+  activeMapPick = {
+    kind,
+    label: kind === "home" ? "place" : "destination",
+    customLabel: kind === "destination" ? elements.destinationLabelInput.value.trim() : "",
+    location: null,
+  };
+
+  selectedPlaces[kind] = null;
+  provider.clearDraftLocation();
+  provider.setMapClickMode(kind.toUpperCase(), async (resolved, _mode, error) => {
+    if (error || !resolved) {
+      setMessage(`Map pick failed: ${serializeError(error)}`, "error");
+      return;
+    }
+    if (!activeMapPick || activeMapPick.kind !== kind) {
+      return;
+    }
+
+    selectedPlaces[kind] = resolved;
+    activeMapPick = {
+      ...activeMapPick,
+      location: resolved,
+    };
+    provider.showDraftLocation(resolved, kind === "home" ? "home" : "destination");
+    renderMapPickBar();
+  });
+
+  if (kind === "home") {
+    elements.homeDialog.close();
+  } else {
+    elements.destinationDialog.close();
+  }
+
+  renderMapPickBar();
+}
+
+function confirmMapPick() {
+  if (!activeMapPick) {
+    return;
+  }
+
+  if (!activeMapPick.location) {
+    setMessage(`Click on the map to place the ${activeMapPick.label} first.`, "warning");
+    return;
+  }
+
+  const { kind, location, customLabel } = activeMapPick;
+  stopMapPick({ clearSelection: false });
+
+  if (kind === "home") {
+    addPlace(location);
+    clearSearchSelection("home");
+    return;
+  }
+
+  addDestination(location, customLabel || location.label);
+  clearDestinationDialog();
+}
+
+function cancelMapPick() {
+  stopMapPick({ clearSelection: true });
+}
+
+function stopMapPick({ clearSelection = true } = {}) {
+  if (!activeMapPick) {
+    return;
+  }
+
+  provider?.setMapClickMode("NONE");
+  provider?.clearDraftLocation();
+
+  if (clearSelection && activeMapPick.kind) {
+    selectedPlaces[activeMapPick.kind] = null;
+  }
+
+  activeMapPick = null;
+  renderMapPickBar();
+}
+
+function clearActiveSelection() {
+  if (!highlightedCell && !tableFocus) {
+    return;
+  }
+
+  highlightedCell = null;
+  tableFocus = null;
+  preserveMapViewport = true;
   renderAll();
 }
 
@@ -627,12 +765,54 @@ function setMessage(message, tone = "") {
   elements.messageBar.classList.toggle("is-error", tone === "error");
 }
 
+function renderMapPickBar() {
+  if (!activeMapPick) {
+    elements.mapPickBar.classList.add("is-hidden");
+    elements.mapPickTitle.textContent = "";
+    elements.mapPickDetail.textContent = "";
+    return;
+  }
+
+  const noun = activeMapPick.label;
+  const hasLocation = Boolean(activeMapPick.location);
+  elements.mapPickBar.classList.remove("is-hidden");
+  elements.mapPickTitle.textContent = `Select ${noun} on map`;
+  elements.mapPickDetail.textContent = hasLocation
+    ? activeMapPick.location.address || activeMapPick.location.label
+    : `Click on the map to place the ${noun}. Click again to move it, then confirm.`;
+  elements.mapPickConfirmButton.textContent = activeMapPick.kind === "home" ? "Confirm Place" : "Confirm Destination";
+}
+
+function getLocationKindLabel(kind) {
+  return kind === "home" ? "place" : "destination";
+}
+
+function shouldClearSelectionOnDocumentClick(target) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  return !target.closest([
+    "[data-row-id]",
+    "[data-center-home-id]",
+    "[data-center-destination-id]",
+    ".graph-bar-button",
+    ".map-marker-pill",
+    ".map-pick-bar",
+  ].join(","));
+}
+
+function openPresetMenu() {
+  elements.presetMenuPanel.classList.remove("is-hidden");
+  renderAll();
+}
+
 function captureElements() {
   return {
     modeSelect: document.querySelector("#mode-select"),
     presetSelect: document.querySelector("#preset-select"),
-    presetMenuButton: document.querySelector("#preset-menu-button"),
     presetMenuPanel: document.querySelector("#preset-menu-panel"),
+    directionToggle: document.querySelector("#direction-toggle"),
     shareButton: document.querySelector("#share-button"),
     settingsButton: document.querySelector("#settings-button"),
     clearShareButton: document.querySelector("#clear-share-button"),
@@ -640,9 +820,15 @@ function captureElements() {
     messageBar: document.querySelector("#message-bar"),
     map: document.querySelector("#map"),
     mapStatus: document.querySelector("#map-status"),
+    mapPickBar: document.querySelector("#map-pick-bar"),
+    mapPickTitle: document.querySelector("#map-pick-title"),
+    mapPickDetail: document.querySelector("#map-pick-detail"),
+    mapPickConfirmButton: document.querySelector("#map-pick-confirm-button"),
+    mapPickCancelButton: document.querySelector("#map-pick-cancel-button"),
     homeDialog: document.querySelector("#home-dialog"),
     homeSearchInput: document.querySelector("#home-search-input"),
     homeSearchResults: document.querySelector("#home-search-results"),
+    selectHomeOnMapButton: document.querySelector("#select-home-on-map-button"),
     cancelHomeButton: document.querySelector("#cancel-home-button"),
     destinationDialog: document.querySelector("#destination-dialog"),
     destinationKindSelect: document.querySelector("#destination-kind-select"),
@@ -651,18 +837,16 @@ function captureElements() {
     destinationSearchInput: document.querySelector("#destination-search-input"),
     destinationSearchResults: document.querySelector("#destination-search-results"),
     destinationLabelInput: document.querySelector("#destination-label-input"),
+    selectDestinationOnMapButton: document.querySelector("#select-destination-on-map-button"),
     dynamicTypeInput: document.querySelector("#dynamic-type-input"),
     dynamicCountInput: document.querySelector("#dynamic-count-input"),
     addDestinationButton: document.querySelector("#add-destination-button"),
     cancelDestinationButton: document.querySelector("#cancel-destination-button"),
-    presetLabelInput: document.querySelector("#preset-label-input"),
-    presetKindInput: document.querySelector("#preset-kind-input"),
     presetDayInput: document.querySelector("#preset-day-input"),
     presetTimeInput: document.querySelector("#preset-time-input"),
     addHomeManualButton: document.querySelector("#add-home-manual-button"),
     addPresetButton: document.querySelector("#add-preset-button"),
     presetsList: document.querySelector("#presets-list"),
-    presetsCount: document.querySelector("#presets-count"),
     comparisonStatus: document.querySelector("#comparison-status"),
     comparisonTableContainer: document.querySelector("#comparison-table-container"),
     comparisonGraphContainer: document.querySelector("#comparison-graph-container"),
