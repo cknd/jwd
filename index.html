@@ -14,57 +14,6 @@
           <h1>Journey Worth Doing</h1>
         </div>
         <div class="topbar-actions">
-          <label class="field compact-field">
-            <span>Mode</span>
-            <select id="mode-select"></select>
-          </label>
-          <div class="preset-cluster">
-            <label class="field compact-field">
-              <span>Preset</span>
-              <select id="preset-select"></select>
-            </label>
-            <div class="preset-menu-wrap">
-              <button id="preset-menu-button" class="secondary-button" type="button" aria-expanded="false" aria-controls="preset-menu-panel">
-                Presets
-              </button>
-              <div id="preset-menu-panel" class="preset-menu-panel is-hidden">
-                <div class="preset-menu-header">
-                  <div>
-                    <strong>Time Presets</strong>
-                    <div class="item-subtitle">Keep time settings here so the main board stays focused on locations.</div>
-                  </div>
-                  <span id="presets-count" class="pill">0</span>
-                </div>
-                <div class="preset-menu-form">
-                  <label class="field">
-                    <span>Label</span>
-                    <input id="preset-label-input" type="text" placeholder="Weekday 08:30 departure">
-                  </label>
-                  <label class="field">
-                    <span>Kind</span>
-                    <select id="preset-kind-input">
-                      <option value="DEPARTURE">Departure</option>
-                      <option value="ARRIVAL">Arrival</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span>Day</span>
-                    <select id="preset-day-input">
-                      <option value="WEEKDAY">Weekday</option>
-                      <option value="SATURDAY">Saturday</option>
-                      <option value="SUNDAY">Sunday</option>
-                    </select>
-                  </label>
-                  <label class="field">
-                    <span>Time</span>
-                    <input id="preset-time-input" type="time" value="08:30">
-                  </label>
-                  <button id="add-preset-button" class="secondary-button" type="button">Add Preset</button>
-                </div>
-                <ul id="presets-list" class="item-list compact-list"></ul>
-              </div>
-            </div>
-          </div>
           <button id="share-button" class="primary-button" type="button">Share</button>
           <button id="settings-button" class="secondary-button" type="button">Settings</button>
         </div>
@@ -78,24 +27,10 @@
         <button id="clear-share-button" class="secondary-button" type="button">Clear shared hash</button>
       </div>
 
-      <div id="message-bar" class="message-bar" aria-live="polite"></div>
+      <div id="message-bar" class="message-bar is-hidden" aria-live="polite"></div>
 
       <main class="workspace">
         <section class="map-pane">
-          <div class="pane-header">
-            <div>
-              <h2>Map</h2>
-              <p class="muted">Compare the current board spatially. Table actions below are the primary way to add or remove entries.</p>
-            </div>
-            <label class="field compact-field">
-              <span>Map click adds</span>
-              <select id="map-add-mode">
-                <option value="NONE" selected>Nothing</option>
-                <option value="HOME">Candidate home</option>
-                <option value="DESTINATION">Fixed destination</option>
-              </select>
-            </label>
-          </div>
           <div id="map-status" class="map-status">
             Enter a Google Maps API key in Settings or edit <code>config.js</code> to load the map.
           </div>
@@ -103,18 +38,70 @@
         </section>
 
         <section class="panel-section comparison-pane">
-          <div class="pane-header">
-            <div>
-              <h2>Comparison Table</h2>
-              <p id="comparison-subtitle" class="muted">Waiting for homes and destinations.</p>
+          <div class="comparison-controls">
+            <div class="comparison-filters">
+              <label class="field compact-field">
+                <span>Mode</span>
+                <select id="mode-select"></select>
+              </label>
+              <div class="preset-cluster">
+                <label class="field compact-field">
+                  <span>Preset</span>
+                  <select id="preset-select"></select>
+                </label>
+                <div class="preset-menu-wrap">
+                  <button id="preset-menu-button" class="secondary-button" type="button" aria-expanded="false" aria-controls="preset-menu-panel">
+                    Presets
+                  </button>
+                  <div id="preset-menu-panel" class="preset-menu-panel is-hidden">
+                    <div class="preset-menu-header">
+                      <div>
+                        <strong>Time Presets</strong>
+                      </div>
+                      <span id="presets-count" class="pill">0</span>
+                    </div>
+                    <div class="preset-menu-form">
+                      <label class="field">
+                        <span>Label</span>
+                        <input id="preset-label-input" type="text" placeholder="Weekday 08:30 departure">
+                      </label>
+                      <label class="field">
+                        <span>Kind</span>
+                        <select id="preset-kind-input">
+                          <option value="DEPARTURE">Departure</option>
+                          <option value="ARRIVAL">Arrival</option>
+                        </select>
+                      </label>
+                      <label class="field">
+                        <span>Day</span>
+                        <select id="preset-day-input">
+                          <option value="WEEKDAY">Weekday</option>
+                          <option value="SATURDAY">Saturday</option>
+                          <option value="SUNDAY">Sunday</option>
+                        </select>
+                      </label>
+                      <label class="field">
+                        <span>Time</span>
+                        <input id="preset-time-input" type="time" value="08:30">
+                      </label>
+                      <button id="add-preset-button" class="secondary-button" type="button">Add Preset</button>
+                    </div>
+                    <ul id="presets-list" class="item-list compact-list"></ul>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="meta-stack">
-              <div class="meta-row"><span>Provider</span><strong>Google Maps Platform</strong></div>
-              <div class="meta-row"><span>Computed at</span><strong id="computed-at-value">Not yet computed</strong></div>
+            <div class="comparison-meta">
+              <p id="comparison-subtitle" class="muted is-hidden"></p>
+              <div class="meta-stack">
+                <div class="meta-row"><span>Provider</span><strong>Google Maps Platform</strong></div>
+                <div class="meta-row"><span>Computed at</span><strong id="computed-at-value">Not yet computed</strong></div>
+              </div>
             </div>
           </div>
           <div id="comparison-status" class="comparison-status">Start by adding a home row or a destination column.</div>
           <div id="comparison-table-container" class="comparison-table-container"></div>
+          <div id="comparison-graph-container" class="comparison-graph-container"></div>
         </section>
       </main>
 

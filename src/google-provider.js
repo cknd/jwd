@@ -247,9 +247,7 @@ export class GoogleTravelProvider {
       });
     });
 
-    const highlightedHomeId = boardState.highlightedHomeId || boardState.homes[0]?.id;
-    const activeDynamicRows = dynamicRows.filter((row) => row.homeId === highlightedHomeId);
-    activeDynamicRows.forEach((row, index) => {
+    dynamicRows.forEach((row, index) => {
       entries.push({
         key: row.id,
         position: row.location,
@@ -275,12 +273,14 @@ export class GoogleTravelProvider {
           position: entry.position,
           title: entry.title,
           content: this.#buildMarkerContent(entry),
+          zIndex: this.#getMarkerZIndex(entry.type),
         });
         this.markers.set(entry.key, marker);
       } else {
         marker.position = entry.position;
         marker.title = entry.title;
         marker.content = this.#buildMarkerContent(entry);
+        marker.zIndex = this.#getMarkerZIndex(entry.type);
       }
     });
 
@@ -362,6 +362,14 @@ export class GoogleTravelProvider {
     this.#clearFallbackHighlight();
   }
 
+  centerLocation(locationRef) {
+    if (!this.map || !locationRef) {
+      return;
+    }
+
+    this.map.panTo(locationRef);
+  }
+
   #clearFallbackHighlight() {
     if (this.highlightCircle) {
       this.highlightCircle.setMap(null);
@@ -421,12 +429,24 @@ export class GoogleTravelProvider {
     return wrapper;
   }
 
-  #truncateLabel(text, maxLength = 26) {
+  #truncateLabel(text, maxLength = 8) {
     if (!text || text.length <= maxLength) {
       return text;
     }
 
     return `${text.slice(0, maxLength - 1)}…`;
+  }
+
+  #getMarkerZIndex(type) {
+    if (type === "home") {
+      return 30;
+    }
+
+    if (type === "destination") {
+      return 20;
+    }
+
+    return 10;
   }
 
   #resolveMaxItems(mode) {

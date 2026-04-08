@@ -1,4 +1,3 @@
-import { MAP_ADD_MODES } from "./constants.js";
 import { buildComparisonSnapshot, collectMapDynamicRows, emptySnapshot } from "./comparison.js";
 import { loadGoogleMapsApi } from "./google-loader.js";
 import { GoogleTravelProvider } from "./google-provider.js";
@@ -78,11 +77,6 @@ function bindGlobalEvents() {
   elements.clearShareButton.addEventListener("click", clearShareHash);
   elements.openHomeDialogButton?.addEventListener("click", openHomeDialog);
   elements.openDestinationDialogButton?.addEventListener("click", openDestinationDialog);
-  elements.mapAddMode.addEventListener("change", () => {
-    if (provider) {
-      provider.setMapClickMode(elements.mapAddMode.value, handleMapResolvedLocation);
-    }
-  });
   document.addEventListener("click", () => {
     if (!elements.presetMenuPanel.classList.contains("is-hidden")) {
       elements.presetMenuPanel.classList.add("is-hidden");
@@ -260,7 +254,7 @@ async function ensureMapProvider() {
     const google = await loadGoogleMapsApi(runtimeConfig);
     provider = new GoogleTravelProvider(google, elements.map, runtimeConfig);
     await provider.init();
-    provider.setMapClickMode(elements.mapAddMode.value, handleMapResolvedLocation);
+    provider.setMapClickMode("NONE");
     elements.mapStatus.classList.add("is-hidden");
     mapReady = true;
     renderMap();
@@ -329,17 +323,6 @@ function addDestination(location, label) {
   updateBoardState({
     fixedDestinations: [...boardState.fixedDestinations, createFixedDestination(location, label)],
   });
-}
-
-function handleMapResolvedLocation(location, mode) {
-  if (mode === MAP_ADD_MODES.HOME) {
-    addHome(location);
-    return;
-  }
-
-  if (mode === MAP_ADD_MODES.DESTINATION) {
-    addDestination(location, location.label);
-  }
 }
 
 function bindLocationSearch(kind, inputElement, resultsElement, onSelect) {
@@ -514,7 +497,7 @@ function openDestinationDialog() {
 
 function buildDynamicDestinationLabel(primaryType, count) {
   const normalized = primaryType.replaceAll("_", " ");
-  return `${count} nearest ${normalized}`;
+  return `nearest ${normalized}`;
 }
 
 function openSettings() {
@@ -567,7 +550,8 @@ function renderAll() {
 
   renderComparison(elements, boardState, comparisonSnapshot, highlightedCell, {
     onSelectCell: handleCellSelection,
-    onHighlightHome: (homeId) => updateBoardState({ highlightedHomeId: homeId }, { recompute: false }),
+    onCenterHome: centerHomeById,
+    onCenterDestination: centerDestinationById,
     onRemoveHome: (homeId) => updateBoardState({ homes: boardState.homes.filter((home) => home.id !== homeId) }),
     onRemoveDestination: (destinationId) =>
       updateBoardState({ fixedDestinations: boardState.fixedDestinations.filter((item) => item.id !== destinationId) }),
@@ -585,7 +569,7 @@ function renderMap() {
   }
 
   const selectedPreset = boardState.presets.find((preset) => preset.id === boardState.selectedPresetId);
-  const dynamicRows = collectMapDynamicRows(comparisonSnapshot, boardState.highlightedHomeId || boardState.homes[0]?.id, boardState);
+  const dynamicRows = collectMapDynamicRows(comparisonSnapshot, boardState);
   provider.renderMarkers(boardState, dynamicRows, {
     highlight: highlightedCell
       ? {
@@ -608,13 +592,37 @@ function handleCellSelection(rowId, homeIndex) {
   renderAll();
 }
 
+function centerHomeById(homeId) {
+  const home = boardState.homes.find((item) => item.id === homeId);
+  if (!home || !provider) {
+    return;
+  }
+
+  provider.centerLocation(home.location);
+}
+
+function centerDestinationById(destinationId, kind) {
+  if (!provider || kind !== "fixed") {
+    return;
+  }
+
+  const destination = boardState.fixedDestinations.find((item) => item.id === destinationId);
+  if (!destination) {
+    return;
+  }
+
+  provider.centerLocation(destination.location);
+}
+
 function findDestinationLocation(cellSelection) {
   const row = comparisonSnapshot.rows.find((item) => item.id === cellSelection.rowId);
   return row?.cells[cellSelection.homeIndex]?.destinationLocation || null;
 }
 
 function setMessage(message, tone = "") {
+  const visible = tone === "warning" || tone === "error";
   elements.messageBar.textContent = message;
+  elements.messageBar.classList.toggle("is-hidden", !visible);
   elements.messageBar.classList.toggle("is-warning", tone === "warning");
   elements.messageBar.classList.toggle("is-error", tone === "error");
 }
@@ -632,7 +640,6 @@ function captureElements() {
     messageBar: document.querySelector("#message-bar"),
     map: document.querySelector("#map"),
     mapStatus: document.querySelector("#map-status"),
-    mapAddMode: document.querySelector("#map-add-mode"),
     homeDialog: document.querySelector("#home-dialog"),
     homeSearchInput: document.querySelector("#home-search-input"),
     homeSearchResults: document.querySelector("#home-search-results"),
@@ -659,6 +666,7 @@ function captureElements() {
     comparisonSubtitle: document.querySelector("#comparison-subtitle"),
     comparisonStatus: document.querySelector("#comparison-status"),
     comparisonTableContainer: document.querySelector("#comparison-table-container"),
+    comparisonGraphContainer: document.querySelector("#comparison-graph-container"),
     computedAtValue: document.querySelector("#computed-at-value"),
     settingsDialog: document.querySelector("#settings-dialog"),
     apiKeyInput: document.querySelector("#api-key-input"),

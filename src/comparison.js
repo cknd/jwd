@@ -44,6 +44,7 @@ export async function buildDynamicRows(boardState, provider, preset) {
   const rows = [];
 
   for (const dynamicGroup of boardState.dynamicGroups) {
+    const baseLabel = buildDynamicRowBaseLabel(dynamicGroup.primaryType);
     const resultsByHome = await Promise.all(
       boardState.homes.map(async (home) => {
         const nearbyPlaces = await provider.searchNearby(home, dynamicGroup);
@@ -70,10 +71,10 @@ export async function buildDynamicRows(boardState, provider, preset) {
         id: `${dynamicGroup.id}-${ordinal + 1}`,
         kind: "DYNAMIC",
         dynamicGroupId: dynamicGroup.id,
-        rowLabel: `${dynamicGroup.label} #${ordinal + 1}`,
-        rowSubtitle: `Nearest ${dynamicGroup.primaryType.replaceAll("_", " ")}`,
+        rowLabel: `${baseLabel} #${ordinal + 1}`,
+        rowSubtitle: "",
         homeId: boardState.highlightedHomeId || boardState.homes[0]?.id,
-        placeLabel: dynamicGroup.label,
+        placeLabel: baseLabel,
         location: null,
         cells,
       });
@@ -83,24 +84,29 @@ export async function buildDynamicRows(boardState, provider, preset) {
   return rows;
 }
 
-export function collectMapDynamicRows(snapshot, highlightedHomeId, boardState) {
+export function collectMapDynamicRows(snapshot, boardState) {
+  if (!snapshot?.dynamicRows?.length || !boardState?.homes?.length) {
+    return [];
+  }
+
   const rows = [];
   for (const row of snapshot.dynamicRows) {
-    const homeIndex = boardState.homes.findIndex((home) => home.id === highlightedHomeId);
-    if (homeIndex === -1) {
-      continue;
-    }
+    row.cells.forEach((cell, homeIndex) => {
+      if (!cell?.destinationLocation) {
+        return;
+      }
 
-    const cell = row.cells[homeIndex];
-    if (!cell?.destinationLocation) {
-      continue;
-    }
+      const homeId = boardState.homes[homeIndex]?.id;
+      if (!homeId) {
+        return;
+      }
 
-    rows.push({
-      id: `${row.id}-${highlightedHomeId}`,
-      homeId: highlightedHomeId,
-      location: cell.destinationLocation,
-      placeLabel: cell.destinationLabel,
+      rows.push({
+        id: `${row.id}-${homeId}`,
+        homeId,
+        location: cell.destinationLocation,
+        placeLabel: cell.destinationLabel,
+      });
     });
   }
 
@@ -151,4 +157,8 @@ function normalizeCell(home, destinationLocation, routeItem, fallbackLabel) {
     formattedDistance: formatDistance(distanceMeters),
     isReachable,
   };
+}
+
+function buildDynamicRowBaseLabel(primaryType) {
+  return `nearest ${primaryType.replaceAll("_", " ")}`;
 }
