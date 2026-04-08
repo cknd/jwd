@@ -1,0 +1,459 @@
+import { DEFAULT_CENTER, STORAGE_KEYS } from "./constants.js";
+import { loadCache, saveCache } from "./storage.js";
+import { buildLocationRefFromPlace, nextDateForPreset, serializeError, titleCase, toPlainLatLng } from "./utils.js";
+
+export class GoogleTravelProvider {
+  constructor(google, mapContainer, config = {}) {
+    this.google = google;
+    this.config = config;
+    this.mapContainer = mapContainer;
+    this.map = null;
+    this.geocoder = null;
+    this.markers = new Map();
+    this.highlightCircle = null;
+    this.routePolylines = [];
+    this.highlightRequestId = 0;
+    this.routeCache = new Map(Object.entries(loadCache(STORAGE_KEYS.routeCache)));
+    this.nearbyCache = new Map(Object.entries(loadCache(STORAGE_KEYS.nearbyCache)));
+    this.placeSelections = {
+      home: null,
+      destination: null,
+    };
+    this.mapClickHandler = null;
+    this.mapLibrariesReady = null;
+  }
+
+  async init() {
+    if (this.mapLibrariesReady) {
+      return this.mapLibrariesReady;
+    }
+
+    this.mapLibrariesReady = this.#initLibraries();
+    return this.mapLibrariesReady;
+  }
+
+  async #initLibraries() {
+    const [{ Map }, { AdvancedMarkerElement }, { Place, SearchNearbyRankPreference }, { RouteMatrix, Route }, { Geocoder }] = await Promise.all([
+      this.google.maps.importLibrary("maps"),
+      this.google.maps.importLibrary("marker"),
+      this.google.maps.importLibrary("places"),
+      this.google.maps.importLibrary("routes"),
+      this.google.maps.importLibrary("geocoding"),
+    ]);
+
+    this.MapClass = Map;
+    this.AdvancedMarkerElementClass = AdvancedMarkerElement;
+    this.PlaceClass = Place;
+    this.SearchNearbyRankPreference = SearchNearbyRankPreference;
+    this.RouteMatrix = RouteMatrix;
+    this.RouteClass = Route;
+    this.GeocoderClass = Geocoder;
+    this.geocoder = new this.GeocoderClass();
+
+    this.map = new this.MapClass(this.mapContainer, {
+      center: DEFAULT_CENTER,
+      zoom: 11,
+      mapId: this.config.googleMapId || "DEMO_MAP_ID",
+      streetViewControl: false,
+      mapTypeControl: false,
+      fullscreenControl: false,
+    });
+  }
+
+  getPendingSelection(kind) {
+    return this.placeSelections[kind];
+  }
+
+  clearPendingSelection(kind) {
+    this.placeSelections[kind] = null;
+  }
+
+  setMapClickMode(mode, onResolvedLocation) {
+    if (this.mapClickHandler) {
+      this.mapClickHandler.remove();
+      this.mapClickHandler = null;
+    }
+
+    if (mode === "NONE") {
+      return;
+    }
+
+    this.mapClickHandler = this.map.addListener("click", async (event) => {
+      const location = toPlainLatLng(event.latLng);
+      const resolved = await this.reverseGeocode(location);
+      onResolvedLocation(resolved, mode);
+    });
+  }
+
+  async geocode(searchText) {
+    const response = await this.geocoder.geocode({ address: searchText });
+    return response.results.map((result) => ({
+      label: this.#buildAddressLabel(result),
+      address: result.formatted_address,
+      placeId: result.place_id,
+      lat: result.geometry.location.lat(),
+      lng: result.geometry.location.lng(),
+    }));
+  }
+
+  async reverseGeocode(location) {
+    const response = await this.geocoder.geocode({ location });
+    const best = response.results?.[0];
+    if (!best) {
+      return {
+        label: "Pinned location",
+        address: `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`,
+        lat: location.lat,
+        lng: location.lng,
+      };
+    }
+
+    return {
+      label: this.#buildAddressLabel(best),
+      address: best.formatted_address,
+      placeId: best.place_id,
+      lat: best.geometry.location.lat(),
+      lng: best.geometry.location.lng(),
+    };
+  }
+
+  async searchNearby(home, dynamicGroup) {
+    const cacheKey = JSON.stringify({
+      lat: home.location.lat,
+      lng: home.location.lng,
+      type: dynamicGroup.primaryType,
+      count: dynamicGroup.count,
+    });
+
+    if (this.nearbyCache.has(cacheKey)) {
+      return this.nearbyCache.get(cacheKey);
+    }
+
+    const center = new this.google.maps.LatLng(home.location.lat, home.location.lng);
+    let radius = 800;
+    let placeResults = [];
+
+    while (radius <= 50000 && placeResults.length < dynamicGroup.count) {
+      const response = await this.PlaceClass.searchNearby({
+        fields: ["displayName", "formattedAddress", "location", "id"],
+        locationRestriction: {
+          center,
+          radius,
+        },
+        includedPrimaryTypes: [dynamicGroup.primaryType],
+        maxResultCount: Math.min(20, dynamicGroup.count * 4),
+        rankPreference: this.SearchNearbyRankPreference.DISTANCE,
+      });
+
+      placeResults = (response.places || []).filter((place) => place.location);
+      radius *= 2;
+    }
+
+    const normalized = placeResults.slice(0, dynamicGroup.count).map((place) => buildLocationRefFromPlace(place, titleCase(dynamicGroup.primaryType)));
+    this.nearbyCache.set(cacheKey, normalized);
+    saveCache(STORAGE_KEYS.nearbyCache, Object.fromEntries(this.nearbyCache.entries()));
+    return normalized;
+  }
+
+  async computeMatrix(origins, destinations, mode, preset) {
+    if (!origins.length || !destinations.length) {
+      return [];
+    }
+
+    const cacheKey = JSON.stringify({
+      origins: origins.map((origin) => [origin.lat, origin.lng, origin.placeId]),
+      destinations: destinations.map((destination) => [destination.lat, destination.lng, destination.placeId]),
+      mode,
+      preset,
+    });
+
+    if (this.routeCache.has(cacheKey)) {
+      return this.routeCache.get(cacheKey);
+    }
+
+    const matrix = Array.from({ length: origins.length }, () => Array.from({ length: destinations.length }, () => null));
+
+    const maxItems = this.#resolveMaxItems(mode);
+    const originChunkSize = Math.max(1, Math.min(origins.length, maxItems));
+
+    for (let originStart = 0; originStart < origins.length; originStart += originChunkSize) {
+      const originChunk = origins.slice(originStart, originStart + originChunkSize);
+      const destinationChunkSize = Math.max(1, Math.floor(maxItems / originChunk.length));
+
+      for (let destinationStart = 0; destinationStart < destinations.length; destinationStart += destinationChunkSize) {
+        const destinationChunk = destinations.slice(destinationStart, destinationStart + destinationChunkSize);
+        const request = {
+          origins: originChunk.map((origin) => this.#buildWaypoint(origin)),
+          destinations: destinationChunk.map((destination) => this.#buildWaypoint(destination)),
+          travelMode: mode,
+          units: this.google.maps.UnitSystem.METRIC,
+          fields: ["distanceMeters", "durationMillis", "staticDurationMillis", "condition", "travelAdvisory", "localizedValues", "fallbackInfo"],
+          ...this.#buildTimingOptions(mode, preset),
+          ...this.#buildTrafficOptions(mode),
+        };
+
+        const response = await this.RouteMatrix.computeRouteMatrix(request);
+        const rows = response.matrix?.rows || [];
+
+        rows.forEach((row, originOffset) => {
+          row.items.forEach((item, destinationOffset) => {
+            matrix[originStart + originOffset][destinationStart + destinationOffset] = {
+              durationMillis: item.durationMillis ?? Number.NaN,
+              staticDurationMillis: item.staticDurationMillis ?? Number.NaN,
+              distanceMeters: item.distanceMeters ?? Number.NaN,
+              condition: item.condition || "ROUTE_NOT_FOUND",
+              localizedValues: item.localizedValues,
+              fallbackInfo: item.fallbackInfo,
+              travelAdvisory: item.travelAdvisory,
+              routeNote: item.error ? serializeError(item.error) : null,
+            };
+          });
+        });
+      }
+    }
+
+    this.routeCache.set(cacheKey, matrix);
+    saveCache(STORAGE_KEYS.routeCache, Object.fromEntries(this.routeCache.entries()));
+    return matrix;
+  }
+
+  async computeRoutes(origin, destinations, mode, preset) {
+    return this.computeMatrix([origin], destinations, mode, preset).then((matrix) => matrix[0]);
+  }
+
+  async renderMarkers(boardState, dynamicRows, comparisonData) {
+    if (!this.map) {
+      return;
+    }
+
+    const entries = [];
+    boardState.homes.forEach((home, index) => {
+      entries.push({
+        key: home.id,
+        position: home.location,
+        label: `H${index + 1}`,
+        title: home.location.label,
+        type: "home",
+      });
+    });
+
+    boardState.fixedDestinations.forEach((destination, index) => {
+      entries.push({
+        key: destination.id,
+        position: destination.location,
+        label: `D${index + 1}`,
+        title: destination.label,
+        type: "destination",
+      });
+    });
+
+    const highlightedHomeId = boardState.highlightedHomeId || boardState.homes[0]?.id;
+    const activeDynamicRows = dynamicRows.filter((row) => row.homeId === highlightedHomeId);
+    activeDynamicRows.forEach((row, index) => {
+      entries.push({
+        key: row.id,
+        position: row.location,
+        label: `N${index + 1}`,
+        title: row.placeLabel,
+        type: "dynamic",
+      });
+    });
+
+    const nextKeys = new Set(entries.map((entry) => entry.key));
+    for (const [key, marker] of this.markers.entries()) {
+      if (!nextKeys.has(key)) {
+        marker.setMap(null);
+        this.markers.delete(key);
+      }
+    }
+
+    entries.forEach((entry) => {
+      let marker = this.markers.get(entry.key);
+      if (!marker) {
+        marker = new this.AdvancedMarkerElementClass({
+          map: this.map,
+          position: entry.position,
+          title: entry.title,
+          content: this.#buildMarkerContent(entry),
+        });
+        this.markers.set(entry.key, marker);
+      } else {
+        marker.position = entry.position;
+        marker.title = entry.title;
+        marker.content = this.#buildMarkerContent(entry);
+      }
+    });
+
+    const bounds = new this.google.maps.LatLngBounds();
+    entries.forEach((entry) => bounds.extend(entry.position));
+
+    if (!bounds.isEmpty()) {
+      this.map.fitBounds(bounds, 64);
+    }
+
+    if (comparisonData?.highlight) {
+      await this.highlightComparisonCell(comparisonData.highlight);
+    } else {
+      this.clearHighlight();
+    }
+  }
+
+  async highlightComparisonCell(highlightData) {
+    const { homeLocation, destinationLocation, mode, preset } = highlightData;
+    if (!this.map || !homeLocation || !destinationLocation) {
+      return;
+    }
+
+    const bounds = new this.google.maps.LatLngBounds();
+    bounds.extend(homeLocation);
+    bounds.extend(destinationLocation);
+    this.map.fitBounds(bounds, 96);
+
+    const requestId = ++this.highlightRequestId;
+    this.#clearRoutePolylines();
+
+    try {
+      const request = {
+        origin: this.#buildWaypoint(homeLocation),
+        destination: this.#buildWaypoint(destinationLocation),
+        travelMode: mode,
+        fields: this.#buildRouteFields(mode),
+        ...this.#buildTimingOptions(mode, preset),
+        ...this.#buildTrafficOptions(mode),
+      };
+
+      const { routes } = await this.RouteClass.computeRoutes(request);
+      if (requestId !== this.highlightRequestId) {
+        return;
+      }
+
+      if (routes?.[0]) {
+        this.routePolylines = routes[0].createPolylines();
+        this.routePolylines.forEach((polyline) => {
+          polyline.setOptions({
+            strokeColor: "#d76c2f",
+            strokeOpacity: 0.85,
+            strokeWeight: 5,
+          });
+          polyline.setMap(this.map);
+        });
+        this.#clearFallbackHighlight();
+        return;
+      }
+    } catch {
+      // Fall back to a straight segment when route rendering is unavailable.
+    }
+
+    if (!this.highlightCircle) {
+      this.highlightCircle = new this.google.maps.Polyline({
+        map: this.map,
+        strokeColor: "#d76c2f",
+        strokeOpacity: 0.85,
+        strokeWeight: 4,
+      });
+    }
+
+    this.highlightCircle.setPath([homeLocation, destinationLocation]);
+  }
+
+  clearHighlight() {
+    this.highlightRequestId += 1;
+    this.#clearRoutePolylines();
+    this.#clearFallbackHighlight();
+  }
+
+  #clearFallbackHighlight() {
+    if (this.highlightCircle) {
+      this.highlightCircle.setMap(null);
+      this.highlightCircle = null;
+    }
+  }
+
+  #clearRoutePolylines() {
+    this.routePolylines.forEach((polyline) => polyline.setMap(null));
+    this.routePolylines = [];
+  }
+
+  #buildWaypoint(locationRef) {
+    return { lat: locationRef.lat, lng: locationRef.lng };
+  }
+
+  #buildTimingOptions(mode, preset) {
+    const targetDate = nextDateForPreset(preset);
+
+    if (preset.kind === "ARRIVAL") {
+      return { arrivalTime: targetDate };
+    }
+
+    return { departureTime: targetDate };
+  }
+
+  #buildTrafficOptions(mode) {
+    if (mode === "DRIVING") {
+      return { routingPreference: "TRAFFIC_AWARE_OPTIMAL" };
+    }
+
+    return {};
+  }
+
+  #buildRouteFields(mode) {
+    if (mode === "TRANSIT") {
+      return ["path", "legs"];
+    }
+
+    if (mode === "DRIVING") {
+      return ["path", "travelAdvisory"];
+    }
+
+    return ["path"];
+  }
+
+  #buildMarkerContent(entry) {
+    const wrapper = document.createElement("button");
+    wrapper.type = "button";
+    wrapper.className = `map-marker-pill map-marker-pill--${entry.type}`;
+    wrapper.title = entry.title;
+    wrapper.textContent = this.#truncateLabel(entry.title);
+    wrapper.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.map.panTo(entry.position);
+    });
+    return wrapper;
+  }
+
+  #truncateLabel(text, maxLength = 26) {
+    if (!text || text.length <= maxLength) {
+      return text;
+    }
+
+    return `${text.slice(0, maxLength - 1)}…`;
+  }
+
+  #resolveMaxItems(mode) {
+    if (mode === "TRANSIT" || mode === "DRIVING") {
+      return 100;
+    }
+
+    return 625;
+  }
+
+  #buildAddressLabel(geocoderResult) {
+    if (!geocoderResult) {
+      return "Pinned location";
+    }
+
+    const formattedAddress = geocoderResult.formatted_address || "";
+    const firstSegment = formattedAddress.split(",")[0]?.trim();
+    if (firstSegment) {
+      return firstSegment;
+    }
+
+    const route = geocoderResult.address_components?.find((component) => component.types.includes("route"))?.long_name;
+    const streetNumber = geocoderResult.address_components?.find((component) => component.types.includes("street_number"))?.long_name;
+    if (route && streetNumber) {
+      return `${route} ${streetNumber}`;
+    }
+
+    return formattedAddress || "Pinned location";
+  }
+}

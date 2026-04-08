@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Journey Worth Doing</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <p class="eyebrow">Location Comparison Board</p>
+          <h1>Journey Worth Doing</h1>
+        </div>
+        <div class="topbar-actions">
+          <label class="field compact-field">
+            <span>Mode</span>
+            <select id="mode-select"></select>
+          </label>
+          <div class="preset-cluster">
+            <label class="field compact-field">
+              <span>Preset</span>
+              <select id="preset-select"></select>
+            </label>
+            <div class="preset-menu-wrap">
+              <button id="preset-menu-button" class="secondary-button" type="button" aria-expanded="false" aria-controls="preset-menu-panel">
+                Presets
+              </button>
+              <div id="preset-menu-panel" class="preset-menu-panel is-hidden">
+                <div class="preset-menu-header">
+                  <div>
+                    <strong>Time Presets</strong>
+                    <div class="item-subtitle">Keep time settings here so the main board stays focused on locations.</div>
+                  </div>
+                  <span id="presets-count" class="pill">0</span>
+                </div>
+                <div class="preset-menu-form">
+                  <label class="field">
+                    <span>Label</span>
+                    <input id="preset-label-input" type="text" placeholder="Weekday 08:30 departure">
+                  </label>
+                  <label class="field">
+                    <span>Kind</span>
+                    <select id="preset-kind-input">
+                      <option value="DEPARTURE">Departure</option>
+                      <option value="ARRIVAL">Arrival</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Day</span>
+                    <select id="preset-day-input">
+                      <option value="WEEKDAY">Weekday</option>
+                      <option value="SATURDAY">Saturday</option>
+                      <option value="SUNDAY">Sunday</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span>Time</span>
+                    <input id="preset-time-input" type="time" value="08:30">
+                  </label>
+                  <button id="add-preset-button" class="secondary-button" type="button">Add Preset</button>
+                </div>
+                <ul id="presets-list" class="item-list compact-list"></ul>
+              </div>
+            </div>
+          </div>
+          <button id="share-button" class="primary-button" type="button">Share</button>
+          <button id="settings-button" class="secondary-button" type="button">Settings</button>
+        </div>
+      </header>
+
+      <div id="import-banner" class="import-banner is-hidden" aria-live="polite">
+        <div>
+          <strong>Shared board loaded.</strong>
+          <span>This link defined the current board and replaced the local draft.</span>
+        </div>
+        <button id="clear-share-button" class="secondary-button" type="button">Clear shared hash</button>
+      </div>
+
+      <div id="message-bar" class="message-bar" aria-live="polite"></div>
+
+      <main class="workspace">
+        <section class="map-pane">
+          <div class="pane-header">
+            <div>
+              <h2>Map</h2>
+              <p class="muted">Compare the current board spatially. Table actions below are the primary way to add or remove entries.</p>
+            </div>
+            <label class="field compact-field">
+              <span>Map click adds</span>
+              <select id="map-add-mode">
+                <option value="NONE" selected>Nothing</option>
+                <option value="HOME">Candidate home</option>
+                <option value="DESTINATION">Fixed destination</option>
+              </select>
+            </label>
+          </div>
+          <div id="map-status" class="map-status">
+            Enter a Google Maps API key in Settings or edit <code>config.js</code> to load the map.
+          </div>
+          <div id="map" class="map-canvas" aria-label="Map view"></div>
+        </section>
+
+        <section class="panel-section comparison-pane">
+          <div class="pane-header">
+            <div>
+              <h2>Comparison Table</h2>
+              <p id="comparison-subtitle" class="muted">Waiting for homes and destinations.</p>
+            </div>
+            <div class="meta-stack">
+              <div class="meta-row"><span>Provider</span><strong>Google Maps Platform</strong></div>
+              <div class="meta-row"><span>Computed at</span><strong id="computed-at-value">Not yet computed</strong></div>
+            </div>
+          </div>
+          <div id="comparison-status" class="comparison-status">Start by adding a home row or a destination column.</div>
+          <div id="comparison-table-container" class="comparison-table-container"></div>
+        </section>
+      </main>
+
+      <dialog id="home-dialog" class="app-dialog">
+        <form method="dialog" class="dialog-content">
+          <header class="dialog-header">
+            <h2>Add Candidate Home</h2>
+          </header>
+          <label class="field">
+            <span>Address or place</span>
+            <input id="home-search-input" type="text" autocomplete="off" placeholder="Search candidate home">
+          </label>
+          <ul id="home-search-results" class="search-results is-hidden"></ul>
+          <div class="dialog-actions">
+            <button id="add-home-manual-button" class="primary-button" type="button">Add Home</button>
+            <button id="cancel-home-button" class="secondary-button" type="button">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="destination-dialog" class="app-dialog">
+        <form method="dialog" class="dialog-content">
+          <header class="dialog-header">
+            <h2>Add Destination</h2>
+          </header>
+          <label class="field">
+            <span>Destination type</span>
+            <select id="destination-kind-select">
+              <option value="FIXED">Fixed address</option>
+              <option value="DYNAMIC">Dynamic nearby query</option>
+            </select>
+          </label>
+
+          <div id="fixed-destination-fields" class="dialog-mode-fields">
+            <label class="field">
+              <span>Optional label</span>
+              <input id="destination-label-input" type="text" placeholder="Work, School, Family">
+            </label>
+            <label class="field">
+              <span>Address or place</span>
+              <input id="destination-search-input" type="text" autocomplete="off" placeholder="Search destination">
+            </label>
+            <ul id="destination-search-results" class="search-results is-hidden"></ul>
+          </div>
+
+          <div id="dynamic-destination-fields" class="dialog-mode-fields is-hidden">
+            <label class="field">
+              <span>Nearby place type</span>
+              <input id="dynamic-type-input" type="text" list="place-type-suggestions" placeholder="supermarket">
+            </label>
+            <label class="field">
+              <span>How many nearby places</span>
+              <input id="dynamic-count-input" type="number" min="1" max="10" value="3">
+            </label>
+            <p class="dialog-note">Dynamic destinations are labeled directly from the query.</p>
+          </div>
+
+          <datalist id="place-type-suggestions">
+            <option value="supermarket"></option>
+            <option value="restaurant"></option>
+            <option value="primary_school"></option>
+            <option value="secondary_school"></option>
+            <option value="train_station"></option>
+            <option value="subway_station"></option>
+            <option value="park"></option>
+            <option value="pharmacy"></option>
+            <option value="gym"></option>
+          </datalist>
+
+          <div class="dialog-actions">
+            <button id="add-destination-button" class="primary-button" type="button">Add Destination</button>
+            <button id="cancel-destination-button" class="secondary-button" type="button">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="settings-dialog" class="app-dialog">
+        <form method="dialog" class="dialog-content">
+          <header class="dialog-header">
+            <h2>Settings</h2>
+          </header>
+          <label class="field">
+            <span>Google Maps API key</span>
+            <input id="api-key-input" type="password" autocomplete="off" placeholder="AIza...">
+          </label>
+          <label class="field">
+            <span>Map ID (optional)</span>
+            <input id="map-id-input" type="text" autocomplete="off" placeholder="Vector map style ID">
+          </label>
+          <p class="dialog-note">
+            This app is static. The API key is public in browser requests and should be restricted to your site origin and to the specific APIs in use.
+          </p>
+          <div class="dialog-actions">
+            <button id="save-settings-button" class="primary-button" type="button">Save</button>
+            <button id="cancel-settings-button" class="secondary-button" type="button">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="share-dialog" class="app-dialog">
+        <form method="dialog" class="dialog-content">
+          <header class="dialog-header">
+            <h2>Share Board</h2>
+          </header>
+          <p id="share-summary" class="dialog-note"></p>
+          <label class="field">
+            <span>Share link</span>
+            <textarea id="share-link-output" rows="4" readonly></textarea>
+          </label>
+          <label class="field">
+            <span>Fallback JSON export</span>
+            <textarea id="share-json-output" rows="8" readonly></textarea>
+          </label>
+          <label class="field">
+            <span>Import JSON board</span>
+            <textarea id="share-json-input" rows="8" placeholder='Paste a BoardState JSON export here'></textarea>
+          </label>
+          <div class="dialog-actions">
+            <button id="copy-share-link-button" class="primary-button" type="button">Copy link</button>
+            <button id="copy-share-json-button" class="secondary-button" type="button">Copy JSON</button>
+            <button id="import-share-json-button" class="secondary-button" type="button">Import JSON</button>
+            <button class="secondary-button" type="submit" value="close">Close</button>
+          </div>
+        </form>
+      </dialog>
+    </div>
+
+    <script src="./config.js"></script>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
