@@ -1,0 +1,13 @@
+{
+  "name": "jwd",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:logic": "playwright test tests/e2e/logic.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.0"
+  }
+}

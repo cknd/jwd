@@ -14,11 +14,12 @@ import { clearLocalStorageData, loadBoardState, loadRuntimeConfig, saveBoardStat
 import { debounce, escapeHtml, pickNextHomeColorIndex, serializeError } from "./utils.js";
 
 const elements = captureElements();
+const testEnv = window.JWD_TEST_ENV || null;
 
 let boardState = createDefaultBoardState();
 let runtimeConfig = {
-  ...window.JWD_CONFIG,
   ...loadRuntimeConfig(),
+  ...(testEnv?.runtimeConfig || {}),
 };
 let provider = null;
 let comparisonSnapshot = emptySnapshot();
@@ -205,7 +206,7 @@ function bindGlobalEvents() {
   elements.clearLocalStorageButton.addEventListener("click", async () => {
     clearLocalStorageData();
     runtimeConfig = {
-      ...window.JWD_CONFIG,
+      ...(testEnv?.runtimeConfig || {}),
     };
     boardState = createDefaultBoardState();
     comparisonSnapshot = emptySnapshot();
@@ -251,6 +252,29 @@ function bindGlobalEvents() {
 }
 
 async function ensureMapProvider() {
+  if (testEnv?.createProvider) {
+    if (provider && mapReady) {
+      return;
+    }
+
+    try {
+      provider = await testEnv.createProvider({
+        mapContainer: elements.map,
+        config: runtimeConfig,
+      });
+      await provider.init?.();
+      provider.setMapClickMode?.("NONE");
+      elements.mapStatus.classList.add("is-hidden");
+      mapReady = true;
+      renderMap();
+    } catch (error) {
+      elements.mapStatus.classList.remove("is-hidden");
+      elements.mapStatus.textContent = `Map could not load: ${serializeError(error)}`;
+      setMessage(`Map could not load: ${serializeError(error)}`, "error");
+    }
+    return;
+  }
+
   if (!runtimeConfig.googleMapsApiKey) {
     elements.mapStatus.textContent = "Enter a Google Maps API key in Settings to load the map.";
     return;
@@ -737,6 +761,10 @@ function openSettings() {
 }
 
 function maybePromptForApiKey(force = false) {
+  if (testEnv?.skipApiKeyPrompt) {
+    return;
+  }
+
   if (runtimeConfig.googleMapsApiKey || (!force && hasPromptedForApiKey)) {
     return;
   }
