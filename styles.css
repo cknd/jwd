@@ -1048,6 +1048,7 @@ code {
   font-size: 0.76rem;
   line-height: 1.25;
   font-weight: 400;
+  text-align: left;
 }
 
 .table-heading-actions {

@@ -747,7 +747,7 @@ function maybePromptForApiKey(force = false) {
 
 async function openShareDialog() {
   elements.shareJsonOutput.value = JSON.stringify(boardState, null, 2);
-  elements.shareSummary.textContent = "Copy this JSON or download it as a file to share the current board.";
+  elements.shareSummary.textContent = "Copy or download the following data to share your current board state with others.";
   elements.shareDialog.showModal();
 }
 
