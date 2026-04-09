@@ -1,10 +1,10 @@
 (function installJwdTestEnv() {
   const KNOWN_LOCATIONS = [
-    { label: "Pohlstraße 51", address: "Pohlstraße 51, 10785 Berlin, Germany", lat: 52.5038, lng: 13.3656, placeId: "fake-place-pohl-51" },
-    { label: "Leinestraße 8", address: "Leinestraße 8, 12049 Berlin, Germany", lat: 52.4763, lng: 13.4313, placeId: "fake-place-leine-8" },
+    { label: "Karl-Liebknecht-Str. 1", address: "Karl-Liebknecht-Str. 1, 10178 Berlin, Germany", lat: 52.5216, lng: 13.4098, placeId: "fake-place-karl-liebknecht-1" },
+    { label: "Rosa-Luxemburg-Straße 1", address: "Rosa-Luxemburg-Straße 1, 10178 Berlin, Germany", lat: 52.5261, lng: 13.4115, placeId: "fake-place-rosa-luxemburg-1" },
     { label: "Miquelstraße 37", address: "Miquelstraße 37, 14199 Berlin, Germany", lat: 52.4761, lng: 13.2981, placeId: "fake-place-miquel-37" },
     { label: "Billerbeker Weg 123", address: "Billerbeker Weg 123, 13507 Berlin, Germany", lat: 52.5923, lng: 13.2865, placeId: "fake-place-billerbeker-123" },
-    { label: "Wallstraße 42", address: "Wallstraße 42, 10179 Berlin, Germany", lat: 52.5126, lng: 13.4105, placeId: "fake-place-wall-42" },
+    { label: "Heinrich-Heine-Straße 1", address: "Heinrich-Heine-Straße 1, 10179 Berlin, Germany", lat: 52.5117, lng: 13.4165, placeId: "fake-place-heinrich-heine-1" },
     { label: "Berlin Hauptbahnhof", address: "Berlin Hauptbahnhof, Europaplatz 1, 10557 Berlin, Germany", lat: 52.5251, lng: 13.3694, placeId: "fake-place-hbf" },
     { label: "Alexanderplatz 1", address: "Alexanderplatz 1, 10178 Berlin, Germany", lat: 52.5219, lng: 13.4132, placeId: "fake-place-alex-1" },
     { label: "Tempelhofer Feld", address: "Tempelhofer Damm, 12101 Berlin, Germany", lat: 52.4736, lng: 13.4025, placeId: "fake-place-tempelhof" },

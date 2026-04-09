@@ -48,9 +48,16 @@ async function addDynamicPoi(page, query, count = 3, customName = "") {
   await page.locator("#composer-add-button").click();
 }
 
+async function importBoardJson(page, state) {
+  await page.getByRole("button", { name: "Load…" }).click();
+  await page.locator("#load-json-input").fill(JSON.stringify(state, null, 2));
+  await page.locator("#import-load-json-button").click();
+}
+
 module.exports = {
   bootFakeApp,
   addLocation,
   addFixedPoi,
   addDynamicPoi,
+  importBoardJson,
 };

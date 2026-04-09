@@ -2,10 +2,12 @@
   "name": "jwd",
   "private": true,
   "scripts": {
-    "test": "playwright test",
-    "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed",
-    "test:logic": "playwright test tests/e2e/logic.spec.js"
+    "test": "npm run test:all",
+    "test:all": "playwright test",
+    "test:app": "playwright test tests/e2e/app.spec.js",
+    "test:app:headed": "PW_SLOW_MO=1000 PW_MAXIMIZED=1 PW_SCENE_BREAKS=1 playwright test tests/e2e/app.spec.js --headed --workers=1 --project=chromium",
+    "test:logic": "playwright test tests/e2e/logic.spec.js",
+    "test:coverage": "playwright test tests/e2e/coverage.spec.js --project=chromium --workers=1"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.0"

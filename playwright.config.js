@@ -1,4 +1,6 @@
 const { defineConfig } = require("@playwright/test");
+const slowMo = Number(process.env.PW_SLOW_MO || 0);
+const maximized = process.env.PW_MAXIMIZED === "1";
 
 module.exports = defineConfig({
   testDir: "./tests/e2e",
@@ -13,6 +15,13 @@ module.exports = defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
+    viewport: maximized ? null : undefined,
+    launchOptions: slowMo > 0 || maximized
+      ? {
+          ...(slowMo > 0 ? { slowMo } : {}),
+          ...(maximized ? { args: ["--start-maximized"] } : {}),
+        }
+      : undefined,
   },
   webServer: {
     command: "python3 -m http.server 8000",

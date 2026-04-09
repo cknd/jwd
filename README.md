@@ -34,6 +34,35 @@ Run:
 npm test
 ```
 
+This runs the full Playwright suite, including both:
+
+- the main app interaction tests
+- the browser-native logic round-trip tests
+
+Useful individual scripts:
+
+- `npm run test:all`: full suite
+- `npm run test:app`: only the main UI flows
+- `npm run test:app:headed`: same app flows in a visible Chromium browser, sequentially and slowed down for inspection
+- `npm run test:logic`: only the browser-native logic tests
+
+Rough browser execution coverage:
+
+```bash
+npm run test:coverage
+```
+
+This writes rough JS/CSS execution summaries to:
+
+- `test-results/coverage/coverage-summary.json`
+- `test-results/coverage/coverage-summary.md`
+
+Notes:
+
+- coverage currently runs in Chromium only
+- this is browser-executed byte coverage, not instrumented line/branch coverage
+- it is best used as a directional indicator for which modules and styles are still lightly exercised
+
 Available test layers:
 
 - `tests/tests.js`: browser-native logic tests for state sanitization and JSON/local-storage round-trips

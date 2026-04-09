@@ -1,11 +1,72 @@
 const { test, expect } = require("@playwright/test");
-const { addDynamicPoi, addFixedPoi, addLocation, bootFakeApp } = require("./helpers");
+const { addDynamicPoi, addFixedPoi, addLocation, bootFakeApp, importBoardJson } = require("./helpers");
+
+test.beforeEach(async ({ page }, testInfo) => {
+  if (process.env.PW_SCENE_BREAKS !== "1") {
+    return;
+  }
+
+  await page.setContent(`
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>Next Test</title>
+        <style>
+          :root {
+            color-scheme: light;
+          }
+
+          body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: #f4f4ef;
+            color: #183b2d;
+            font-family: Georgia, "Times New Roman", serif;
+          }
+
+          .scene-break {
+            width: min(52rem, calc(100vw - 4rem));
+            padding: 2.25rem 2.5rem;
+            border: 1px solid #c8d5ca;
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 18px 40px rgba(24, 59, 45, 0.08);
+          }
+
+          .eyebrow {
+            margin: 0 0 0.75rem;
+            font: 600 0.8rem/1.2 system-ui, sans-serif;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #4e675a;
+          }
+
+          h1 {
+            margin: 0;
+            font-size: clamp(2rem, 4vw, 3.25rem);
+            line-height: 1.05;
+          }
+        </style>
+      </head>
+      <body>
+        <section class="scene-break">
+          <p class="eyebrow">Next Test</p>
+          <h4>${escapeHtml(testInfo.title)}</h4>
+        </section>
+      </body>
+    </html>
+  `);
+
+  await page.waitForTimeout(2000);
+});
 
 test("can add locations and Points of Interest through the main UI", async ({ page }) => {
   await bootFakeApp(page);
 
-  await addLocation(page, "Pohlstraße 51");
-  await expect(page.locator("#comparison-table-container")).toContainText("Pohlstraße 51");
+  await addLocation(page, "Karl-Liebknecht-Str. 1");
+  await expect(page.locator("#comparison-table-container")).toContainText("Karl-Liebknecht-Str. 1");
 
   await addFixedPoi(page, "Berlin Hauptbahnhof");
   await expect(page.locator("#comparison-table-container")).toContainText("Berlin Hauptbahnhof");
@@ -71,7 +132,7 @@ test("imported board JSON updates mode, preset, and direction in the UI", async 
 test("share dialog exports the current board JSON state", async ({ page }) => {
   await bootFakeApp(page);
 
-  await addLocation(page, "Pohlstraße 51", "Home Base");
+  await addLocation(page, "Karl-Liebknecht-Str. 1", "Home Base");
   await addFixedPoi(page, "Berlin Hauptbahnhof", "Office");
   await page.locator("#mode-select").selectOption("DRIVING");
   await page.locator("#direction-toggle").click();
@@ -94,12 +155,12 @@ test("delete confirmations still work for multiple sequential deletes", async ({
       {
         id: "home-a",
         colorIndex: 0,
-        location: { label: "Pohlstraße 51", address: "Pohlstraße 51, 10785 Berlin, Germany", lat: 52.5038, lng: 13.3656 },
+        location: { label: "Karl-Liebknecht-Str. 1", address: "Karl-Liebknecht-Str. 1, 10178 Berlin, Germany", lat: 52.5216, lng: 13.4098 },
       },
       {
         id: "home-b",
         colorIndex: 2,
-        location: { label: "Leinestraße 8", address: "Leinestraße 8, 12049 Berlin, Germany", lat: 52.4763, lng: 13.4313 },
+        location: { label: "Rosa-Luxemburg-Straße 1", address: "Rosa-Luxemburg-Straße 1, 10178 Berlin, Germany", lat: 52.5261, lng: 13.4115 },
       },
     ],
     fixedDestinations: [
@@ -110,8 +171,8 @@ test("delete confirmations still work for multiple sequential deletes", async ({
       },
       {
         id: "poi-b",
-        label: "Wallstraße 42",
-        location: { label: "Wallstraße 42", address: "Wallstraße 42, 10179 Berlin, Germany", lat: 52.5126, lng: 13.4105 },
+        label: "Heinrich-Heine-Straße 1",
+        location: { label: "Heinrich-Heine-Straße 1", address: "Heinrich-Heine-Straße 1, 10179 Berlin, Germany", lat: 52.5117, lng: 13.4165 },
       },
     ],
     dynamicGroups: [],
@@ -126,7 +187,7 @@ test("delete confirmations still work for multiple sequential deletes", async ({
   await page.locator('[data-request-delete-kind="home"]').first().click();
   await expect(page.locator('[data-confirm-delete-kind="home"]').first()).toBeVisible();
   await page.locator('[data-confirm-delete-kind="home"]').first().click();
-  await expect(page.locator("#comparison-table-container")).not.toContainText("Pohlstraße 51");
+  await expect(page.locator("#comparison-table-container")).not.toContainText("Karl-Liebknecht-Str. 1");
 
   await page.locator('[data-request-delete-kind="destination"]').first().click();
   await expect(page.locator('[data-confirm-delete-kind="destination"]').first()).toBeVisible();
@@ -149,8 +210,11 @@ test("map pick flow works with the fake provider", async ({ page }) => {
   await expect(page.locator("#comparison-table-container")).toContainText("Pinned");
 });
 
-async function importBoardJson(page, state) {
-  await page.getByRole("button", { name: "Load…" }).click();
-  await page.locator("#load-json-input").fill(JSON.stringify(state, null, 2));
-  await page.locator("#import-load-json-button").click();
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
