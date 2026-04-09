@@ -252,7 +252,7 @@ function bindGlobalEvents() {
 
 async function ensureMapProvider() {
   if (!runtimeConfig.googleMapsApiKey) {
-    elements.mapStatus.textContent = "Enter a Google Maps API key in Settings or edit config.js to load the map.";
+    elements.mapStatus.textContent = "Enter a Google Maps API key in Settings to load the map.";
     return;
   }
 

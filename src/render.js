@@ -119,7 +119,8 @@ function bindTableInteractions(container, handlers) {
   });
 
   container.querySelectorAll("[data-request-delete-kind]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
       handlers.onRequestDelete({
         kind: button.getAttribute("data-request-delete-kind"),
         id: button.getAttribute("data-request-delete-id"),
@@ -129,7 +130,8 @@ function bindTableInteractions(container, handlers) {
   });
 
   container.querySelectorAll("[data-edit-kind]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
       handlers.onEditItem({
         kind: button.getAttribute("data-edit-kind"),
         id: button.getAttribute("data-edit-id"),
@@ -138,7 +140,8 @@ function bindTableInteractions(container, handlers) {
   });
 
   container.querySelectorAll("[data-confirm-delete-kind]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
       handlers.onConfirmDelete({
         kind: button.getAttribute("data-confirm-delete-kind"),
         id: button.getAttribute("data-confirm-delete-id"),
@@ -147,7 +150,10 @@ function bindTableInteractions(container, handlers) {
   });
 
   container.querySelectorAll("[data-cancel-delete]").forEach((button) => {
-    button.addEventListener("click", () => handlers.onCancelDelete());
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      handlers.onCancelDelete();
+    });
   });
 
   container.querySelectorAll("[data-center-home-id]").forEach((button) => {
@@ -295,7 +301,7 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell, table
       const cells = destinationColumns.length
         ? destinationColumns
             .map((column) => {
-              const cell = column.cells[homeIndex];
+              const cell = findCellForHome(column, home);
               const highlighted =
                 highlightedCell && highlightedCell.rowId === column.id && highlightedCell.homeIndex === homeIndex ? " is-highlighted" : "";
               const columnFocused = tableFocus?.type === "column" && tableFocus.id === column.id ? " comparison-column-focus" : "";
@@ -546,6 +552,14 @@ function buildDynamicRowBaseLabel(primaryType) {
   return `nearest ${primaryType.replaceAll("_", " ")}`;
 }
 
+function findCellForHome(column, home) {
+  if (!column?.cells?.length || !home) {
+    return null;
+  }
+
+  return column.cells.find((cell) => cell?.homeId === home.id) || null;
+}
+
 function buildDurationDisplay(cell) {
   const label = cell?.formattedDuration || "Unavailable";
   if (!Number.isFinite(cell?.durationMillis)) {
@@ -636,13 +650,17 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
     `;
   }
 
-  const scaleMaxDuration = roundUpDurationMillis(Math.max(...finiteDurations));
-  const tickFractions = [1, 0.75, 0.5, 0.25, 0];
-  const yAxisLabels = tickFractions
+  const { scaleMaxDuration, ticks } = buildGraphTicks(Math.max(...finiteDurations));
+  const gridLines = buildGraphGridLines(scaleMaxDuration, ticks);
+  const activeModeLabel = TRAVEL_MODES.find((mode) => mode.value === boardState.selectedMode)?.label || boardState.selectedMode;
+  const activePreset = boardState.presets.find((preset) => preset.id === boardState.selectedPresetId);
+  const activeDirectionLabel = ROUTE_DIRECTIONS.find((direction) => direction.value === boardState.selectedDirection)?.label
+    || boardState.selectedDirection;
+  const yAxisLabels = ticks
     .map(
-      (fraction) => `
-        <div class="graph-y-tick">
-          <span>${escapeHtml(formatDuration(scaleMaxDuration * fraction))}</span>
+      (tick, index) => `
+        <div class="graph-y-tick${index === 0 ? " is-top" : ""}${index === ticks.length - 1 ? " is-bottom" : ""}" style="bottom:${tick.fraction * 100}%">
+          <span>${escapeHtml(formatDuration(tick.valueMillis))}</span>
         </div>
       `,
     )
@@ -661,8 +679,9 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
 
   const groups = destinationColumns
     .map((column) => {
-      const bars = column.cells
-        .map((cell, homeIndex) => {
+      const bars = boardState.homes
+        .map((home, homeIndex) => {
+          const cell = findCellForHome(column, home);
           const durationMillis = cell?.durationMillis;
           const height = Number.isFinite(durationMillis) && scaleMaxDuration > 0 ? Math.max(4, (durationMillis / scaleMaxDuration) * 100) : 0;
           const highlighted =
@@ -673,9 +692,9 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
               class="graph-bar-button${highlighted}"
               data-row-id="${escapeHtml(column.id)}"
               data-home-index="${homeIndex}"
-              title="${escapeHtml(boardState.homes[homeIndex].location.label)}: ${escapeHtml(cell?.formattedDuration || "Unavailable")}"
+              title="${escapeHtml(home.location.label)}: ${escapeHtml(cell?.formattedDuration || "Unavailable")}"
             >
-              <span class="graph-bar" style="${escapeHtml(`${buildHomeColorStyle(boardState.homes[homeIndex])}height:${height}%;`)}"></span>
+              <span class="graph-bar" style="${escapeHtml(`${buildHomeColorStyle(home)}height:${height}%;`)}"></span>
             </button>
           `;
         })
@@ -692,7 +711,13 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
 
   return `
     <section class="comparison-graph-block">
-      <div class="graph-legend">${legend}</div>
+      <div class="graph-meta">
+        Travel times by ${escapeHtml(activeModeLabel)}
+        &nbsp;·&nbsp;
+        ${escapeHtml(activePreset ? formatPresetLabel(activePreset) : "Unknown")}
+        &nbsp;·&nbsp;
+        Direction: ${escapeHtml(activeDirectionLabel)}
+      </div>
       <div class="comparison-graph-frame">
         <div class="graph-y-axis">
           ${yAxisLabels}
@@ -700,9 +725,10 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
         <div class="comparison-graph-scroll">
           <div class="comparison-graph-plot">
             <div class="graph-grid-lines">
-              ${tickFractions
+              ${gridLines
                 .map(
-                  (fraction) => `<span class="graph-grid-line" style="bottom:${fraction * 100}%"></span>`,
+                  (line) =>
+                    `<span class="graph-grid-line ${escapeHtml(line.className)}" style="bottom:${line.bottom}%"></span>`,
                 )
                 .join("")}
             </div>
@@ -710,12 +736,72 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
           </div>
         </div>
       </div>
+      <div class="graph-legend">
+        <span class="graph-legend-title">Locations:</span>
+        ${legend}
+      </div>
     </section>
   `;
 }
 
-function roundUpDurationMillis(durationMillis) {
-  const stepMinutes = durationMillis <= 30 * 60000 ? 5 : durationMillis <= 2 * 60 * 60000 ? 15 : 30;
+function buildGraphTicks(maxDurationMillis) {
+  const rawStepMinutes = maxDurationMillis / 60000 / 4;
+  const stepMinutes = Math.max(15, Math.ceil(rawStepMinutes / 15) * 15);
   const stepMillis = stepMinutes * 60000;
-  return Math.max(stepMillis, Math.ceil(durationMillis / stepMillis) * stepMillis);
+  const scaleMaxDuration = Math.max(stepMillis, Math.ceil(maxDurationMillis / stepMillis) * stepMillis);
+  const ticks = [];
+
+  for (let valueMillis = scaleMaxDuration; valueMillis >= 0; valueMillis -= stepMillis) {
+    ticks.push({
+      valueMillis,
+      fraction: scaleMaxDuration > 0 ? valueMillis / scaleMaxDuration : 0,
+    });
+  }
+
+  if (ticks.at(-1)?.valueMillis !== 0) {
+    ticks.push({ valueMillis: 0, fraction: 0 });
+  }
+
+  return { scaleMaxDuration, ticks };
+}
+
+function buildGraphGridLines(scaleMaxDuration, ticks) {
+  const lineMap = new Map();
+
+  const addLine = (fraction, className = "") => {
+    if (!Number.isFinite(fraction) || fraction < 0 || fraction > 1) {
+      return;
+    }
+
+    const key = fraction.toFixed(6);
+    const existing = lineMap.get(key);
+    if (existing) {
+      existing.classNames.add(className);
+      return;
+    }
+
+    lineMap.set(key, {
+      bottom: fraction * 100,
+      classNames: new Set(className ? [className] : []),
+    });
+  };
+
+  ticks.forEach((tick) => addLine(tick.fraction));
+
+  const thirtyMinutesFraction = (30 * 60000) / scaleMaxDuration;
+  if (thirtyMinutesFraction > 0 && thirtyMinutesFraction < 1) {
+    addLine(thirtyMinutesFraction, "graph-grid-line--thirty");
+  }
+
+  const sixtyMinutesFraction = (60 * 60000) / scaleMaxDuration;
+  if (sixtyMinutesFraction > 0 && sixtyMinutesFraction <= 1) {
+    addLine(sixtyMinutesFraction, "graph-grid-line--sixty");
+  }
+
+  return Array.from(lineMap.values())
+    .sort((left, right) => right.bottom - left.bottom)
+    .map((line) => ({
+      bottom: line.bottom,
+      className: Array.from(line.classNames).join(" ").trim(),
+    }));
 }
