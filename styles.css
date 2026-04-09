@@ -49,6 +49,26 @@ button {
   padding: 0.8rem 1rem 1.2rem;
 }
 
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(244, 246, 241, 0.72);
+  backdrop-filter: blur(3px);
+}
+
+.drop-overlay-card {
+  padding: 1rem 1.2rem;
+  border: 1px solid rgba(38, 92, 75, 0.22);
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  color: var(--accent-strong);
+  font-size: 1rem;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -665,7 +685,9 @@ textarea {
 
 .comparison-table-container {
   max-width: 100%;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
+  position: relative;
 }
 
 .comparison-graph-container {
@@ -690,7 +712,7 @@ textarea {
 .comparison-table td:first-child {
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 3;
 }
 
 .comparison-table thead th {
@@ -733,17 +755,36 @@ textarea {
 }
 
 .comparison-cell {
+  position: relative;
   display: grid;
   gap: 0.25rem;
   min-width: 10rem;
 }
 
-.comparison-cell button {
-  text-align: left;
-  padding: 0;
+.comparison-cell-hitarea {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   border: 0;
   background: transparent;
   color: inherit;
+  cursor: pointer;
+}
+
+.comparison-cell-content {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 0.25rem;
+  pointer-events: none;
+}
+
+.cell-duration-row {
+  display: inline-flex;
+  align-items: baseline;
+  justify-self: start;
+  gap: 0.04rem;
+  max-width: 100%;
 }
 
 .cell-duration {
@@ -783,12 +824,74 @@ textarea {
   white-space: nowrap;
 }
 
+.cell-external-link {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #7e8a84;
+}
+
+.cell-external-link svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+}
+
+.cell-external-link:hover,
+.cell-external-link:focus-visible {
+  color: #3f4b45;
+}
+
 .cell-distance,
 .cell-detail,
 .graph-meta,
 .route-note {
   color: var(--ink-soft);
   font-size: 0.85rem;
+}
+
+.cell-detail-row {
+  display: block;
+}
+
+.cell-detail-text {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  display: inline;
+}
+
+.cell-detail-link {
+  color: #66736d;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.08em;
+  pointer-events: auto;
+}
+
+.cell-detail-link:hover,
+.cell-detail-link:focus-visible {
+  color: #4a5751;
+}
+
+.cell-detail-link--dynamic {
+  display: -webkit-inline-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.cell-duration-row .cell-external-link,
+.cell-detail-row .cell-external-link {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  margin-left: 0;
+  pointer-events: auto;
 }
 
 .comparison-cell.is-highlighted {
@@ -856,16 +959,6 @@ textarea {
   .chip-button {
     transition: none;
   }
-
-  .comparison-table th:first-child,
-  .comparison-table td:first-child,
-  .comparison-table thead th {
-    position: static;
-  }
-
-  .comparison-table-container {
-    overflow: visible;
-  }
 }
 
 .dialog-content {
@@ -884,6 +977,24 @@ textarea {
   justify-content: flex-end;
   gap: 0.65rem;
   flex-wrap: wrap;
+}
+
+.dialog-actions--top {
+  justify-content: flex-start;
+  margin-bottom: 0.1rem;
+}
+
+.dialog-icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.dialog-icon-button svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  fill: currentColor;
+  flex: 0 0 auto;
 }
 
 code {
@@ -1259,7 +1370,7 @@ code {
 
 .graph-legend-swatch,
 .graph-bar {
-  background: var(--home-bar, #3d7fd3);
+  background: var(--home-graph-bar, #6f97c2);
 }
 
 .table-heading-link {

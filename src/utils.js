@@ -162,8 +162,9 @@ export function buildHomeColorStyle(homeRef) {
     `--home-border:${tone.border}`,
     `--home-ink:${tone.ink}`,
     `--home-bar:${tone.bar}`,
-    `--home-row-bg:${hexToRgba(tone.bar, 0.12)}`,
-    `--home-row-focus-bg:${hexToRgba(tone.bar, 0.18)}`,
+    `--home-graph-bar:${blendHexWithWhite(tone.bar, 0.78)}`,
+    `--home-row-bg:${blendHexWithWhite(tone.bar, 0.18)}`,
+    `--home-row-focus-bg:${blendHexWithWhite(tone.bar, 0.28)}`,
   ].join(";") + ";";
 }
 
@@ -260,14 +261,16 @@ function resolveHomeColorIndex(homeRef) {
   return 0;
 }
 
-function hexToRgba(hex, alpha) {
+function blendHexWithWhite(hex, alpha) {
   const normalized = String(hex).replace("#", "");
   if (normalized.length !== 6) {
-    return `rgba(0, 0, 0, ${alpha})`;
+    return "#ffffff";
   }
 
   const red = Number.parseInt(normalized.slice(0, 2), 16);
   const green = Number.parseInt(normalized.slice(2, 4), 16);
   const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+
+  const blend = (channel) => Math.round((255 * (1 - alpha)) + (channel * alpha));
+  return `rgb(${blend(red)}, ${blend(green)}, ${blend(blue)})`;
 }

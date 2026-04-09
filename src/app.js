@@ -2,7 +2,6 @@ import { buildComparisonSnapshot, collectMapDynamicRows, emptySnapshot } from ".
 import { loadGoogleMapsApi } from "./google-loader.js";
 import { GoogleTravelProvider } from "./google-provider.js";
 import { renderComparison, renderModeAndPresetSelectors, renderPresetMenu } from "./render.js";
-import { encodeBoardState, buildShareUrl, decodeBoardState, getShareHealth, parseBoardStateFromHash } from "./share.js";
 import {
   createDefaultBoardState,
   createDynamicGroup,
@@ -64,15 +63,6 @@ async function initialize() {
 }
 
 async function hydrateBoardState() {
-  const sharedHash = parseBoardStateFromHash();
-  if (sharedHash) {
-    boardState = await decodeBoardState(sharedHash);
-    saveBoardState(boardState);
-    elements.importBanner.classList.remove("is-hidden");
-    setMessage("Loaded board from shared link.", "");
-    return;
-  }
-
   const localState = loadBoardState();
   boardState = localState || createDefaultBoardState();
 }
@@ -80,6 +70,7 @@ async function hydrateBoardState() {
 function bindGlobalEvents() {
   elements.settingsButton.addEventListener("click", openSettings);
   elements.shareButton.addEventListener("click", openShareDialog);
+  elements.loadButton.addEventListener("click", openLoadDialog);
   elements.presetMenuPanel.addEventListener("click", (event) => {
     event.stopPropagation();
   });
@@ -89,7 +80,6 @@ function bindGlobalEvents() {
         boardState.selectedDirection === "HOME_TO_DESTINATIONS" ? "DESTINATIONS_TO_HOME" : "HOME_TO_DESTINATIONS",
     }),
   );
-  elements.clearShareButton.addEventListener("click", clearShareHash);
   document.addEventListener("click", (event) => {
     let needsRender = false;
 
@@ -120,6 +110,34 @@ function bindGlobalEvents() {
     if (activeMapPick || composerState.target) {
       event.preventDefault();
       resetComposer();
+    }
+  });
+
+  document.addEventListener("dragover", (event) => {
+    if (!hasJsonFile(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    elements.dropOverlay.classList.remove("is-hidden");
+  });
+
+  document.addEventListener("dragleave", (event) => {
+    if (!(event.target instanceof Node) || !document.documentElement.contains(event.relatedTarget)) {
+      elements.dropOverlay.classList.add("is-hidden");
+    }
+  });
+
+  document.addEventListener("drop", (event) => {
+    if (!hasJsonFile(event.dataTransfer)) {
+      return;
+    }
+    event.preventDefault();
+    elements.dropOverlay.classList.add("is-hidden");
+    const file = event.dataTransfer.files?.[0];
+    if (file) {
+      importBoardStateFromFile(file).catch((error) => {
+        setMessage(`JSON import failed: ${serializeError(error)}`, "error");
+      });
     }
   });
 
@@ -205,37 +223,30 @@ function bindGlobalEvents() {
     setMessage("Deleted local storage and reset the local board.", "");
   });
 
-  elements.copyShareLinkButton.addEventListener("click", async () => {
-    if (!elements.copyShareLinkButton.disabled) {
-      await navigator.clipboard.writeText(elements.shareLinkOutput.value);
-      setMessage("Share link copied.", "");
-    }
-  });
-
   elements.copyShareJsonButton.addEventListener("click", async () => {
     await navigator.clipboard.writeText(elements.shareJsonOutput.value);
     setMessage("JSON export copied.", "");
   });
 
-  elements.importShareJsonButton.addEventListener("click", async () => {
-    const raw = elements.shareJsonInput.value.trim();
-    if (!raw) {
-      setMessage("Paste a JSON board export to import it.", "warning");
+  elements.downloadShareJsonButton.addEventListener("click", () => {
+    downloadBoardStateJson();
+  });
+
+  elements.importLoadJsonButton.addEventListener("click", async () => {
+    await importBoardStateFromText(elements.loadJsonInput.value, { closeDialog: true });
+  });
+
+  elements.uploadLoadJsonButton.addEventListener("click", () => {
+    elements.loadJsonFileInput.click();
+  });
+
+  elements.loadJsonFileInput.addEventListener("change", async () => {
+    const file = elements.loadJsonFileInput.files?.[0];
+    if (!file) {
       return;
     }
-
-    try {
-      const nextState = sanitizeBoardState(JSON.parse(raw));
-      boardState = nextState;
-      highlightedCell = null;
-      saveBoardState(boardState);
-      elements.shareDialog.close();
-      renderAll();
-      await recomputeComparisons();
-      setMessage("Imported board from JSON.", "");
-    } catch (error) {
-      setMessage(`JSON import failed: ${serializeError(error)}`, "error");
-    }
+    await importBoardStateFromFile(file, { closeDialog: true });
+    elements.loadJsonFileInput.value = "";
   });
 }
 
@@ -587,7 +598,7 @@ function renderComposer() {
     elements.composerInput.placeholder = target === "home"
       ? "for example: Alexanderplatz 1, Berlin"
       : isDynamic
-        ? "for example: supermarket"
+        ? "for example: italian restaurant"
         : "for example: Alexanderplatz 1, Berlin";
     elements.composerInput.setAttribute(
       "aria-label",
@@ -595,11 +606,7 @@ function renderComposer() {
     );
     elements.composerHelp.textContent = "";
     elements.composerAddButton.textContent = isEditing ? "Save" : "Add";
-    if (isDynamic) {
-      elements.composerInput.setAttribute("list", "place-type-suggestions");
-    } else {
-      elements.composerInput.removeAttribute("list");
-    }
+    elements.composerInput.removeAttribute("list");
   }
 
   if (isMapPicking) {
@@ -739,27 +746,79 @@ function maybePromptForApiKey(force = false) {
 }
 
 async function openShareDialog() {
-  const encoded = await encodeBoardState(boardState);
-  const url = buildShareUrl(encoded);
-  const shareHealth = getShareHealth(url);
-
-  elements.shareLinkOutput.value = url;
   elements.shareJsonOutput.value = JSON.stringify(boardState, null, 2);
-  elements.copyShareLinkButton.disabled = shareHealth.blocked;
-  elements.shareSummary.textContent = shareHealth.blocked
-    ? `Share link blocked at ${shareHealth.length} characters. Use the JSON export instead.`
-    : shareHealth.warning
-      ? `Share link is ${shareHealth.length} characters long. It may be too long for some apps.`
-      : `Share link is ${shareHealth.length} characters long.`;
+  elements.shareSummary.textContent = "Copy this JSON or download it as a file to share the current board.";
   elements.shareDialog.showModal();
 }
 
-function clearShareHash() {
-  const url = new URL(window.location.href);
-  url.hash = "";
-  window.history.replaceState(null, "", url.toString());
-  elements.importBanner.classList.add("is-hidden");
-  setMessage("Removed shared hash from the URL. The current board stays as the local draft.", "");
+function openLoadDialog() {
+  elements.loadJsonInput.value = "";
+  elements.loadDialog.showModal();
+}
+
+async function importBoardStateFromText(raw, options = {}) {
+  if (!String(raw || "").trim()) {
+    setMessage("Paste a JSON board export to import it.", "warning");
+    return;
+  }
+
+  try {
+    const nextState = sanitizeBoardState(JSON.parse(raw));
+    boardState = nextState;
+    highlightedCell = null;
+    tableFocus = null;
+    pendingDelete = null;
+    resetComposer();
+    saveBoardState(boardState);
+    if (options.closeDialog) {
+      elements.loadDialog.close();
+    }
+    renderAll();
+    await recomputeComparisons();
+    setMessage("Imported board from JSON.", "");
+  } catch (error) {
+    setMessage(`JSON import failed: ${serializeError(error)}`, "error");
+  }
+}
+
+async function importBoardStateFromFile(file, options = {}) {
+  const text = await file.text();
+  await importBoardStateFromText(text, options);
+}
+
+function downloadBoardStateJson() {
+  const blob = new Blob([JSON.stringify(boardState, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `jwd-board-${buildTimestampSlug()}.json`;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  setMessage("Downloaded board JSON.", "");
+}
+
+function buildTimestampSlug() {
+  const now = new Date();
+  const parts = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    "-",
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+  ];
+  return parts.join("");
+}
+
+function hasJsonFile(dataTransfer) {
+  if (!dataTransfer?.items?.length && !dataTransfer?.files?.length) {
+    return false;
+  }
+
+  return Array.from(dataTransfer.items || []).some((item) => item.kind === "file")
+    || Array.from(dataTransfer.files || []).some((file) => file.type === "application/json" || file.name.endsWith(".json"));
 }
 
 function renderAll() {
@@ -1118,9 +1177,9 @@ function captureElements() {
     presetMenuPanel: document.querySelector("#preset-menu-panel"),
     directionToggle: document.querySelector("#direction-toggle"),
     shareButton: document.querySelector("#share-button"),
+    loadButton: document.querySelector("#load-button"),
     settingsButton: document.querySelector("#settings-button"),
-    clearShareButton: document.querySelector("#clear-share-button"),
-    importBanner: document.querySelector("#import-banner"),
+    dropOverlay: document.querySelector("#drop-overlay"),
     messageBar: document.querySelector("#message-bar"),
     map: document.querySelector("#map"),
     mapStatus: document.querySelector("#map-status"),
@@ -1163,11 +1222,13 @@ function captureElements() {
     cancelSettingsButton: document.querySelector("#cancel-settings-button"),
     shareDialog: document.querySelector("#share-dialog"),
     shareSummary: document.querySelector("#share-summary"),
-    shareLinkOutput: document.querySelector("#share-link-output"),
     shareJsonOutput: document.querySelector("#share-json-output"),
-    shareJsonInput: document.querySelector("#share-json-input"),
-    copyShareLinkButton: document.querySelector("#copy-share-link-button"),
+    downloadShareJsonButton: document.querySelector("#download-share-json-button"),
     copyShareJsonButton: document.querySelector("#copy-share-json-button"),
-    importShareJsonButton: document.querySelector("#import-share-json-button"),
+    loadDialog: document.querySelector("#load-dialog"),
+    loadJsonInput: document.querySelector("#load-json-input"),
+    loadJsonFileInput: document.querySelector("#load-json-file-input"),
+    uploadLoadJsonButton: document.querySelector("#upload-load-json-button"),
+    importLoadJsonButton: document.querySelector("#import-load-json-button"),
   };
 }

@@ -302,12 +302,18 @@ function buildTableMarkup(boardState, destinationColumns, highlightedCell, table
               return `
                 <td class="${columnFocused.trim()}">
                   <div class="comparison-cell${highlighted}">
-                    <button type="button" data-row-id="${escapeHtml(column.id)}" data-home-index="${homeIndex}">
-                      <div class="cell-duration">${buildDurationDisplay(cell)}</div>
+                    <button class="comparison-cell-hitarea" type="button" data-row-id="${escapeHtml(column.id)}" data-home-index="${homeIndex}"></button>
+                    <div class="comparison-cell-content">
+                      <div class="cell-duration-row">
+                        <div class="cell-duration">${buildDurationDisplay(cell)}</div>
+                        ${buildExternalRouteLink(boardState, home, cell)}
+                      </div>
                       <div class="cell-distance">${escapeHtml(cell?.formattedDistance || "Unavailable")}</div>
-                      <div class="cell-detail">${escapeHtml(cell?.destinationLabel || column.rowLabel)}</div>
+                      <div class="cell-detail-row">
+                        ${buildCellDetailContent(column, cell)}
+                      </div>
                       ${cell?.routeNote ? `<div class="route-note">${escapeHtml(cell.routeNote)}</div>` : ""}
-                    </button>
+                    </div>
                   </div>
                 </td>
               `;
@@ -378,6 +384,101 @@ function buildCenterableHeading(text, type, attributes = {}) {
   const attributeMarkup = serializedAttributes ? ` ${serializedAttributes}` : "";
   const styleMarkup = style ? ` style="${escapeHtml(style)}"` : "";
   return `<button type="button" class="table-heading-link table-heading-link--${type}"${attributeMarkup}${styleMarkup}>${escapeHtml(text)}</button>`;
+}
+
+function buildExternalRouteLink(boardState, home, cell) {
+  if (!cell?.destinationLocation || !cell?.isReachable) {
+    return "";
+  }
+
+  const origin = boardState.selectedDirection === "DESTINATIONS_TO_HOME" ? cell.destinationLocation : home.location;
+  const destination = boardState.selectedDirection === "DESTINATIONS_TO_HOME" ? home.location : cell.destinationLocation;
+  const href = buildGoogleMapsRouteUrl(origin, destination, boardState.selectedMode);
+
+  return `
+    <a
+      class="cell-external-link"
+      href="${escapeHtml(href)}"
+      target="_blank"
+      rel="noreferrer noopener"
+      title="Open this route in Google Maps"
+      aria-label="Open this route in Google Maps"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path d="M9.5 2.25H13a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0V4.81L7.78 9.28a.75.75 0 1 1-1.06-1.06l4.47-4.47H9.5a.75.75 0 0 1 0-1.5Z"></path>
+        <path d="M4 3.25h2a.75.75 0 0 1 0 1.5H4.75v6.5h6.5V10a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75H4A.75.75 0 0 1 3.25 12V4A.75.75 0 0 1 4 3.25Z"></path>
+      </svg>
+    </a>
+  `;
+}
+
+function buildCellDetailContent(column, cell) {
+  const label = escapeHtml(cell?.destinationLabel || column.rowLabel);
+  if (column.kind !== "DYNAMIC" || !cell?.destinationLocation) {
+    return `<span class="cell-detail-text">${label}</span>`;
+  }
+
+  return `
+    <a
+      class="cell-detail-link cell-detail-link--dynamic"
+      href="${escapeHtml(buildGoogleMapsPlaceUrl(cell.destinationLocation))}"
+      target="_blank"
+      rel="noreferrer noopener"
+      title="Open this place in Google Maps"
+      aria-label="Open this place in Google Maps"
+    >
+      ${label}
+    </a>
+  `;
+}
+
+function buildGoogleMapsRouteUrl(origin, destination, mode) {
+  const travelMode = mode === "DRIVING" ? "driving" : mode === "BICYCLING" ? "bicycling" : mode === "WALKING" ? "walking" : "transit";
+  const params = new URLSearchParams({
+    api: "1",
+    origin: formatMapsWaypoint(origin),
+    destination: formatMapsWaypoint(destination),
+    travelmode: travelMode,
+  });
+
+  if (origin?.placeId) {
+    params.set("origin_place_id", origin.placeId);
+  }
+
+  if (destination?.placeId) {
+    params.set("destination_place_id", destination.placeId);
+  }
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+function buildGoogleMapsPlaceUrl(location) {
+  const params = new URLSearchParams({
+    api: "1",
+    query: formatMapsWaypoint(location),
+  });
+
+  if (location?.placeId) {
+    params.set("query_place_id", location.placeId);
+  }
+
+  return `https://www.google.com/maps/search/?${params.toString()}`;
+}
+
+function formatMapsWaypoint(location) {
+  if (!location) {
+    return "";
+  }
+
+  if (location.placeId && location.label) {
+    return location.label;
+  }
+
+  if (location.address) {
+    return location.address;
+  }
+
+  return `${location.lat},${location.lng}`;
 }
 
 function buildDeleteControl(descriptor, pendingDelete) {

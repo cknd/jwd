@@ -15,17 +15,10 @@
         </div>
         <div class="topbar-actions">
           <button id="share-button" class="primary-button" type="button">Share</button>
+          <button id="load-button" class="secondary-button" type="button">Load…</button>
           <button id="settings-button" class="secondary-button" type="button">Settings</button>
         </div>
       </header>
-
-      <div id="import-banner" class="import-banner is-hidden" aria-live="polite">
-        <div>
-          <strong>Shared board loaded.</strong>
-          <span>This link defined the current board and replaced the local draft.</span>
-        </div>
-        <button id="clear-share-button" class="secondary-button" type="button">Clear shared hash</button>
-      </div>
 
       <div id="message-bar" class="message-bar is-hidden" aria-live="polite"></div>
 
@@ -160,18 +153,6 @@
         </section>
       </main>
 
-      <datalist id="place-type-suggestions">
-        <option value="supermarket"></option>
-        <option value="restaurant"></option>
-        <option value="primary_school"></option>
-        <option value="secondary_school"></option>
-        <option value="train_station"></option>
-        <option value="subway_station"></option>
-        <option value="park"></option>
-        <option value="pharmacy"></option>
-        <option value="gym"></option>
-      </datalist>
-
       <dialog id="settings-dialog" class="app-dialog">
         <form method="dialog" class="dialog-content">
           <header class="dialog-header">
@@ -201,26 +182,52 @@
             <h2>Share Board</h2>
           </header>
           <p id="share-summary" class="dialog-note"></p>
+          <div class="dialog-actions dialog-actions--top">
+            <button id="download-share-json-button" class="primary-button dialog-icon-button" type="button">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M8 2.25a.75.75 0 0 1 .75.75v5.19l1.72-1.72a.75.75 0 1 1 1.06 1.06L8.53 10.56a.75.75 0 0 1-1.06 0L4.47 7.53a.75.75 0 0 1 1.06-1.06L7.25 8.2V3a.75.75 0 0 1 .75-.75Z"></path>
+                <path d="M3.5 10.75a.75.75 0 0 1 .75.75v.75h7.5v-.75a.75.75 0 0 1 1.5 0V13a.75.75 0 0 1-.75.75h-9A.75.75 0 0 1 2.75 13v-1.5a.75.75 0 0 1 .75-.75Z"></path>
+              </svg>
+              <span>Download file</span>
+            </button>
+            <button id="copy-share-json-button" class="secondary-button dialog-icon-button" type="button">
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M5 2.75A1.75 1.75 0 0 1 6.75 1h5.5A1.75 1.75 0 0 1 14 2.75v7.5A1.75 1.75 0 0 1 12.25 12h-5.5A1.75 1.75 0 0 1 5 10.25v-7.5Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .14.11.25.25.25h5.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25h-5.5Z"></path>
+                <path d="M2 5.75A1.75 1.75 0 0 1 3.75 4h.5a.75.75 0 0 1 0 1.5h-.5a.25.25 0 0 0-.25.25v7.5c0 .14.11.25.25.25h5.5a.25.25 0 0 0 .25-.25v-.5a.75.75 0 0 1 1.5 0v.5A1.75 1.75 0 0 1 9.25 15h-5.5A1.75 1.75 0 0 1 2 13.25v-7.5Z"></path>
+              </svg>
+              <span>Copy</span>
+            </button>
+            <button class="secondary-button" type="submit" value="close">Close</button>
+          </div>
           <label class="field">
-            <span>Share link</span>
-            <textarea id="share-link-output" rows="4" readonly></textarea>
-          </label>
-          <label class="field">
-            <span>Fallback JSON export</span>
+            <span>Board JSON</span>
             <textarea id="share-json-output" rows="8" readonly></textarea>
           </label>
+        </form>
+      </dialog>
+
+      <dialog id="load-dialog" class="app-dialog">
+        <form method="dialog" class="dialog-content">
+          <header class="dialog-header">
+            <h2>Load Board</h2>
+          </header>
+          <p class="dialog-note">Paste a board JSON export or upload a JSON file you received. ⚠️ This will replace your current board state.</p>
           <label class="field">
-            <span>Import JSON board</span>
-            <textarea id="share-json-input" rows="8" placeholder='Paste a BoardState JSON export here'></textarea>
+            <span>Board JSON</span>
+            <textarea id="load-json-input" rows="8" placeholder='Paste a BoardState JSON export here'></textarea>
           </label>
+          <input id="load-json-file-input" type="file" accept="application/json,.json" class="is-hidden">
           <div class="dialog-actions">
-            <button id="copy-share-link-button" class="primary-button" type="button">Copy link</button>
-            <button id="copy-share-json-button" class="secondary-button" type="button">Copy JSON</button>
-            <button id="import-share-json-button" class="secondary-button" type="button">Import JSON</button>
+            <button id="upload-load-json-button" class="secondary-button" type="button">Upload JSON</button>
+            <button id="import-load-json-button" class="primary-button" type="button">Import JSON</button>
             <button class="secondary-button" type="submit" value="close">Close</button>
           </div>
         </form>
       </dialog>
+
+      <div id="drop-overlay" class="drop-overlay is-hidden" aria-hidden="true">
+        <div class="drop-overlay-card">Drop a board JSON file to load it</div>
+      </div>
     </div>
 
     <script src="./config.js"></script>
