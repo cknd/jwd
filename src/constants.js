@@ -5,9 +5,6 @@ export const STORAGE_KEYS = {
   nearbyCache: "jwd.nearbyCache.v1",
 };
 
-export const SHARE_LENGTH_WARNING = 6000;
-export const SHARE_LENGTH_LIMIT = 8000;
-
 export const TRAVEL_MODES = [
   { value: "DRIVING", label: "🚗 Car" },
   { value: "TRANSIT", label: "🚆 Public Transit" },

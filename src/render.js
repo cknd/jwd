@@ -227,7 +227,6 @@ function renderGenericList(listElement, items, projector) {
 }
 
 function renderSelect(element, options, selectedValue, onChange) {
-  const currentValue = element.value;
   element.innerHTML = "";
   options.forEach((optionDescriptor) => {
     const option = document.createElement("option");
@@ -242,11 +241,7 @@ function renderSelect(element, options, selectedValue, onChange) {
     element.dataset.bound = "true";
   }
 
-  if (currentValue && Array.from(element.options).some((option) => option.value === currentValue)) {
-    element.value = currentValue;
-  } else {
-    element.value = selectedValue;
-  }
+  element.value = selectedValue;
 }
 
 function buildTableMarkup(boardState, destinationColumns, highlightedCell, tableFocus, pendingDelete) {
