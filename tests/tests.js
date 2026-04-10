@@ -1,7 +1,7 @@
 import { buildDynamicRows } from "../src/comparison.js";
 import { STORAGE_KEYS } from "../src/constants.js";
 import { createDefaultBoardState, sanitizeBoardState } from "../src/state.js";
-import { loadBoardState, saveBoardState } from "../src/storage.js";
+import { clearLocalStorageData, loadBoardState, saveBoardState, saveRuntimeConfig } from "../src/storage.js";
 
 const tests = [];
 
@@ -116,6 +116,47 @@ test("sanitizeBoardState assigns missing home color indexes without overwriting 
   assert(state.homes[1].colorIndex !== 4, "Expected assigned colorIndex to avoid collisions when possible.");
 });
 
+test("sanitizeBoardState migrates legacy default presets to include Sunday 11:00", () => {
+  const state = sanitizeBoardState({
+    homes: [
+      {
+        id: "home-1",
+        location: { label: "Home 1", lat: 1, lng: 1 },
+      },
+    ],
+    presets: [
+      { id: "preset-1", dayType: "WEEKDAY", timeLocal: "08:30", label: "Weekday 8:30" },
+      { id: "preset-2", dayType: "WEEKDAY", timeLocal: "17:30", label: "Weekday 17:30" },
+    ],
+    selectedPresetId: "preset-1",
+  });
+
+  assert(state.presets.length === 3, "Expected a migrated legacy board to gain the Sunday preset.");
+  assert(state.presets.some((preset) => preset.dayType === "SUNDAY" && preset.timeLocal === "11:00"), "Expected Sunday 11:00 preset.");
+  assert(state.selectedPresetId === "preset-1", "Expected selectedPresetId to remain stable during preset migration.");
+});
+
+test("sanitizeBoardState drops invalid dynamic groups and falls back highlighted location", () => {
+  const state = sanitizeBoardState({
+    homes: [
+      {
+        id: "home-1",
+        location: { label: "Home 1", lat: 1, lng: 1 },
+      },
+    ],
+    dynamicGroups: [
+      { id: "dynamic-invalid", label: "Broken", primaryType: "coffee", count: 0 },
+      { id: "dynamic-valid", label: "Coffee", primaryType: "coffee", count: 2 },
+    ],
+    highlightedHomeId: "missing-home",
+    presets: createDefaultBoardState().presets,
+  });
+
+  assert(state.dynamicGroups.length === 1, "Expected invalid dynamic groups to be dropped.");
+  assert(state.dynamicGroups[0].id === "dynamic-valid", "Expected the valid dynamic group to survive sanitization.");
+  assert(state.highlightedHomeId === "home-1", "Expected highlightedHomeId to fall back to the first surviving home.");
+});
+
 test("dynamic rows expand into separate ordinal rows", async () => {
   const boardState = {
     ...createDefaultBoardState(),
@@ -149,6 +190,20 @@ test("dynamic rows expand into separate ordinal rows", async () => {
   assert(rows.length === 3, "Expected three ordinal rows for count=3.");
   assert(rows[0].rowLabel === "nearest coffee #1", "Expected first ordinal row label.");
   assert(rows[2].cells[1].destinationLabel === "Home 2 Spot 3", "Expected home-specific destinations in each cell.");
+});
+
+test("clearLocalStorageData removes persisted board, runtime config, and caches", () => {
+  window.localStorage.setItem(STORAGE_KEYS.boardState, JSON.stringify({ version: 1 }));
+  saveRuntimeConfig({ googleMapsApiKey: "test-key" });
+  window.localStorage.setItem(STORAGE_KEYS.routeCache, JSON.stringify({ route: true }));
+  window.localStorage.setItem(STORAGE_KEYS.nearbyCache, JSON.stringify({ nearby: true }));
+
+  clearLocalStorageData();
+
+  assert(window.localStorage.getItem(STORAGE_KEYS.boardState) === null, "Expected board state to be cleared.");
+  assert(window.localStorage.getItem(STORAGE_KEYS.runtimeConfig) === null, "Expected runtime config to be cleared.");
+  assert(window.localStorage.getItem(STORAGE_KEYS.routeCache) === null, "Expected route cache to be cleared.");
+  assert(window.localStorage.getItem(STORAGE_KEYS.nearbyCache) === null, "Expected nearby cache to be cleared.");
 });
 
 run();

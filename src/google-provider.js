@@ -136,7 +136,11 @@ export class GoogleTravelProvider {
 
   async geocode(searchText) {
     const response = await this.geocoder.geocode({ address: searchText });
-    return response.results.map((result) => ({
+    const results = this.#readResponseList(response, "results", {
+      serviceLabel: "Google geocoding",
+      requiredApiLabel: "Geocoding API",
+    });
+    return results.map((result) => ({
       label: this.#buildAddressLabel(result),
       address: result.formatted_address,
       placeId: result.place_id,
@@ -147,7 +151,11 @@ export class GoogleTravelProvider {
 
   async reverseGeocode(location) {
     const response = await this.geocoder.geocode({ location });
-    const best = response.results?.[0];
+    const results = this.#readResponseList(response, "results", {
+      serviceLabel: "Google reverse geocoding",
+      requiredApiLabel: "Geocoding API",
+    });
+    const best = results[0];
     if (!best) {
       return {
         label: "Pinned location",
@@ -190,8 +198,12 @@ export class GoogleTravelProvider {
         rankPreference: "DISTANCE",
         maxResultCount: Math.min(20, dynamicGroup.count * 4),
       });
+      const places = this.#readResponseList(response, "places", {
+        serviceLabel: "Google nearby text search",
+        requiredApiLabel: "Places API",
+      });
 
-      (response.places || [])
+      places
         .filter((place) => place.location && place.id)
         .forEach((place) => {
           if (!placeResults.has(place.id)) {
@@ -248,7 +260,10 @@ export class GoogleTravelProvider {
         };
 
         const response = await this.RouteMatrix.computeRouteMatrix(request);
-        const rows = response.matrix?.rows || [];
+        const rows = this.#readResponseList(response?.matrix, "rows", {
+          serviceLabel: "Google route matrix",
+          requiredApiLabel: "Routes API",
+        });
 
         rows.forEach((row, originOffset) => {
           row.items.forEach((item, destinationOffset) => {
@@ -343,6 +358,8 @@ export class GoogleTravelProvider {
       }
     });
 
+    this.mapContainer.dataset.markerCount = String(entries.length);
+
     const bounds = new this.google.maps.LatLngBounds();
     entries.forEach((entry) => bounds.extend(entry.position));
 
@@ -399,6 +416,8 @@ export class GoogleTravelProvider {
         } else {
           this.#fitLocations(origin, destination);
         }
+        this.mapContainer.dataset.highlightState = "route";
+        this.mapContainer.dataset.highlightDescription = `${origin.label || origin.address || "origin"} -> ${destination.label || destination.address || "destination"}`;
         this.#clearFallbackHighlight();
         return;
       }
@@ -417,12 +436,16 @@ export class GoogleTravelProvider {
 
     this.highlightCircle.setPath([origin, destination]);
     this.#fitLocations(origin, destination);
+    this.mapContainer.dataset.highlightState = "fallback";
+    this.mapContainer.dataset.highlightDescription = `${origin.label || origin.address || "origin"} -> ${destination.label || destination.address || "destination"}`;
   }
 
   clearHighlight() {
     this.highlightRequestId += 1;
     this.#clearRoutePolylines();
     this.#clearFallbackHighlight();
+    delete this.mapContainer.dataset.highlightState;
+    delete this.mapContainer.dataset.highlightDescription;
   }
 
   centerLocation(locationRef) {
@@ -430,6 +453,7 @@ export class GoogleTravelProvider {
       return;
     }
 
+    this.mapContainer.dataset.centeredLocation = locationRef?.label || "";
     this.map.panTo(locationRef);
   }
 
@@ -570,5 +594,42 @@ export class GoogleTravelProvider {
     const latDelta = (target.lat - origin.lat) * latScale;
     const lngDelta = (target.lng - origin.lng) * lngScale;
     return Math.hypot(latDelta, lngDelta);
+  }
+
+  #readResponseList(source, property, { serviceLabel, requiredApiLabel }) {
+    const value = source?.[property];
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    throw new Error(this.#buildServiceFailureMessage(serviceLabel, requiredApiLabel));
+  }
+
+  #buildServiceFailureMessage(serviceLabel, requiredApiLabel) {
+    const details = [];
+    const mapLoadFailure = this.#readMapLoadFailureText();
+    if (mapLoadFailure) {
+      details.push(`Google Maps reported: ${mapLoadFailure}`);
+    } else {
+      details.push(`${serviceLabel} did not return a valid response.`);
+    }
+
+    details.push(
+      `Check that billing is enabled, the current origin is allowed by your API key website restrictions, and that ${requiredApiLabel} is enabled for this project.`,
+    );
+    return details.join(" ");
+  }
+
+  #readMapLoadFailureText() {
+    const rawText = this.mapContainer?.textContent?.replace(/\s+/g, " ").trim();
+    if (!rawText) {
+      return "";
+    }
+
+    if (/didn't load google maps correctly|something went wrong|for development purposes only/i.test(rawText)) {
+      return rawText;
+    }
+
+    return "";
   }
 }

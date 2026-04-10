@@ -11,7 +11,7 @@ module.exports = defineConfig({
   fullyParallel: true,
   reporter: [["list"]],
   use: {
-    baseURL: "http://127.0.0.1:8000",
+    baseURL: "http://localhost:8000",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -25,7 +25,7 @@ module.exports = defineConfig({
   },
   webServer: {
     command: "python3 -m http.server 8000",
-    url: "http://127.0.0.1:8000/index.html",
+    url: "http://localhost:8000/index.html",
     reuseExistingServer: !process.env.CI,
     stdout: "ignore",
     stderr: "pipe",

@@ -42,9 +42,10 @@ This runs the full Playwright suite, including both:
 Useful individual scripts:
 
 - `npm run test:all`: full suite
-- `npm run test:app`: only the main UI flows
-- `npm run test:app:headed`: same app flows in a visible Chromium browser, sequentially and slowed down for inspection
+- `npm run test:app`: the fake-provider app UI suite, including layout screenshots
+- `npm run test:app:headed`: the same app UI suite in a visible Chromium browser, sequentially and slowed down for inspection
 - `npm run test:logic`: only the browser-native logic tests
+- `npm run test:smoke:google`: opt-in real Google Maps smoke test in Chromium; requires `JWD_GOOGLE_MAPS_API_KEY` or `GOOGLE_MAPS_API_KEY`
 
 Rough browser execution coverage:
 
@@ -62,6 +63,7 @@ Notes:
 - coverage currently runs in Chromium only
 - this is browser-executed byte coverage, not instrumented line/branch coverage
 - it is best used as a directional indicator for which modules and styles are still lightly exercised
+- the real Google smoke test is excluded unless both a key and `JWD_RUN_REAL_PROVIDER=1` are present
 
 Available test layers:
 

@@ -1,4 +1,5 @@
 (function installJwdTestEnv() {
+  const TEST_OPTIONS = window.JWD_TEST_OPTIONS || {};
   const KNOWN_LOCATIONS = [
     { label: "Karl-Liebknecht-Str. 1", address: "Karl-Liebknecht-Str. 1, 10178 Berlin, Germany", lat: 52.5216, lng: 13.4098, placeId: "fake-place-karl-liebknecht-1" },
     { label: "Rosa-Luxemburg-Straße 1", address: "Rosa-Luxemburg-Straße 1, 10178 Berlin, Germany", lat: 52.5261, lng: 13.4115, placeId: "fake-place-rosa-luxemburg-1" },
@@ -77,6 +78,15 @@
         return [];
       }
 
+      const configuredError = resolveConfiguredMessage(TEST_OPTIONS.geocodeErrors, query);
+      if (configuredError) {
+        throw new Error(configuredError);
+      }
+
+      if (matchesConfiguredQuery(TEST_OPTIONS.geocodeZeroResultQueries, query)) {
+        return [];
+      }
+
       const matches = KNOWN_LOCATIONS.filter((location) =>
         location.label.toLowerCase().includes(query) || location.address.toLowerCase().includes(query),
       );
@@ -89,6 +99,10 @@
     }
 
     async reverseGeocode(location) {
+      if (TEST_OPTIONS.reverseGeocodeError) {
+        throw new Error(String(TEST_OPTIONS.reverseGeocodeError));
+      }
+
       return {
         label: `Pinned ${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`,
         address: `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)} Berlin, Germany`,
@@ -100,6 +114,10 @@
 
     async searchNearby(home, dynamicGroup) {
       const query = String(dynamicGroup.primaryType || "").trim();
+      const configuredError = resolveConfiguredMessage(TEST_OPTIONS.searchNearbyErrors, query.toLowerCase());
+      if (configuredError) {
+        throw new Error(configuredError);
+      }
       const labels = resolveNearbyLabels(query, dynamicGroup.count);
 
       return labels.map((label, index) => {
@@ -115,10 +133,18 @@
     }
 
     async computeMatrix(origins, destinations, mode, preset) {
+      if (TEST_OPTIONS.computeMatrixError) {
+        throw new Error(String(TEST_OPTIONS.computeMatrixError));
+      }
+
       return origins.map((origin) => destinations.map((destination) => buildRouteItem(origin, destination, mode, preset)));
     }
 
     async computeRoutes(origin, destinations, mode, preset) {
+      if (TEST_OPTIONS.computeRoutesError) {
+        throw new Error(String(TEST_OPTIONS.computeRoutesError));
+      }
+
       return destinations.map((destination) => buildRouteItem(origin, destination, mode, preset));
     }
 
@@ -128,6 +154,7 @@
       }
 
       this.markerLayer.innerHTML = "";
+      this.mapContainer.dataset.markerCount = "0";
       const entries = [];
 
       boardState.homes.forEach((home) => {
@@ -183,6 +210,8 @@
         this.markerLayer.append(marker);
       });
 
+      this.mapContainer.dataset.markerCount = String(entries.length);
+
       if (this.draftMarker) {
         this.markerLayer.append(this.draftMarker);
       }
@@ -192,6 +221,8 @@
         if (homeLocation && destinationLocation) {
           this.routeLayer.textContent = `Route: ${homeLocation.label} → ${destinationLocation.label}`;
           this.routeLayer.classList.add("is-visible");
+          this.mapContainer.dataset.highlightState = "route";
+          this.mapContainer.dataset.highlightDescription = `${homeLocation.label} -> ${destinationLocation.label}`;
         }
       } else {
         this.clearHighlight();
@@ -205,6 +236,8 @@
 
       this.routeLayer.textContent = "";
       this.routeLayer.classList.remove("is-visible");
+      delete this.mapContainer.dataset.highlightState;
+      delete this.mapContainer.dataset.highlightDescription;
     }
 
     centerLocation(locationRef) {
@@ -346,6 +379,19 @@
     return Math.abs(hash);
   }
 
+  function matchesConfiguredQuery(configured, query) {
+    return Array.isArray(configured) && configured.some((entry) => query.includes(String(entry || "").trim().toLowerCase()));
+  }
+
+  function resolveConfiguredMessage(configuredMap, query) {
+    if (!configuredMap || typeof configuredMap !== "object") {
+      return "";
+    }
+
+    const key = Object.keys(configuredMap).find((entry) => query.includes(String(entry || "").trim().toLowerCase()));
+    return key ? String(configuredMap[key] || "") : "";
+  }
+
   function toTitleCase(value) {
     return String(value || "")
       .trim()
@@ -420,11 +466,15 @@
   }
 
   window.JWD_TEST_ENV = {
-    skipApiKeyPrompt: true,
-    runtimeConfig: {
+    skipApiKeyPrompt: TEST_OPTIONS.skipApiKeyPrompt ?? true,
+    runtimeConfig: TEST_OPTIONS.runtimeConfig || {
       googleMapsApiKey: "fake-browser-key",
     },
     async createProvider({ mapContainer }) {
+      if (TEST_OPTIONS.createProviderError) {
+        throw new Error(String(TEST_OPTIONS.createProviderError));
+      }
+
       return new FakeTravelProvider(mapContainer);
     },
   };
