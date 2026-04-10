@@ -8,13 +8,16 @@ async function bootFakeApp(page, options = {}) {
     window.JWD_TEST_OPTIONS = testOptions;
   }, options);
   await page.addInitScript({ path: fakeEnvPath });
-  await page.addInitScript(() => {
+  await page.addInitScript((preserveLocalStorage) => {
+    if (preserveLocalStorage) {
+      return;
+    }
     try {
       window.localStorage.clear();
     } catch {
       // ignore storage clearing issues in non-standard contexts
     }
-  });
+  }, options.preserveLocalStorage === true);
 
   await page.goto("/index.html");
   if (options.expectMapSurface !== false) {
