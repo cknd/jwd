@@ -671,6 +671,7 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
       `,
     )
     .join("");
+  const graphGroupStyle = buildGraphGroupStyle(boardState.homes.length);
 
   const groups = destinationColumns
     .map((column) => {
@@ -696,7 +697,7 @@ function buildGraphMarkup(boardState, destinationColumns, highlightedCell) {
         .join("");
 
       return `
-        <section class="graph-group">
+        <section class="graph-group" style="${escapeHtml(graphGroupStyle)}">
           <div class="graph-bars">${bars}</div>
           <div class="graph-group-label" title="${escapeHtml(column.rowLabel)}">${escapeHtml(column.rowLabel)}</div>
         </section>
@@ -799,4 +800,21 @@ function buildGraphGridLines(scaleMaxDuration, ticks) {
       bottom: line.bottom,
       className: Array.from(line.classNames).join(" ").trim(),
     }));
+}
+
+function buildGraphGroupStyle(seriesCount) {
+  const count = Math.max(1, Number(seriesCount) || 1);
+  const barWidthRem = clampNumber(1.2 - ((count - 1) * 0.04), 0.72, 1.2);
+  const gapRem = clampNumber(0.35 - ((count - 1) * 0.02), 0.12, 0.35);
+  const groupWidthRem = Math.max(8, (count * barWidthRem) + ((count - 1) * gapRem) + 0.5);
+
+  return [
+    `--graph-group-width:${groupWidthRem.toFixed(3)}rem`,
+    `--graph-bar-width:${barWidthRem.toFixed(3)}rem`,
+    `--graph-bar-gap:${gapRem.toFixed(3)}rem`,
+  ].join(";") + ";";
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }

@@ -156,6 +156,29 @@ test("graph uses 15-minute y-axis ticks, guide lines, and synchronized metadata"
   await expect(page.locator(".graph-meta")).toContainText("Direction: Location ⬅️ Points of Interest");
 });
 
+test("graph bars stay non-overlapping when many locations are present", async ({ page }) => {
+  await bootFakeApp(page);
+
+  await importBoardJson(page, buildDenseGraphBoardState());
+  await expect(page.locator("#comparison-graph-container .graph-group").first()).toBeVisible();
+
+  const firstGroupBarBoxes = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll("#comparison-graph-container .graph-group:first-of-type .graph-bar-button"))
+      .map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+      });
+  });
+
+  expect(firstGroupBarBoxes.length).toBe(8);
+  firstGroupBarBoxes.forEach((box) => {
+    expect(box.width).toBeGreaterThan(0);
+  });
+  for (let index = 1; index < firstGroupBarBoxes.length; index += 1) {
+    expect(firstGroupBarBoxes[index].left).toBeGreaterThanOrEqual(firstGroupBarBoxes[index - 1].right - 1);
+  }
+});
+
 function buildWideBoardState() {
   return {
     version: 1,
@@ -201,6 +224,33 @@ function buildGraphBoardState() {
     selectedMode: "WALKING",
     selectedDirection: "HOME_TO_DESTINATIONS",
     highlightedHomeId: "home-far",
+    view: "TABLE",
+  };
+}
+
+function buildDenseGraphBoardState() {
+  return {
+    version: 1,
+    homes: [
+      location("home-1", 0, "Location 1", "Location 1, Berlin, Germany", 52.5923, 13.2865),
+      location("home-2", 1, "Location 2", "Location 2, Berlin, Germany", 52.563, 13.319),
+      location("home-3", 2, "Location 3", "Location 3, Berlin, Germany", 52.547, 13.355),
+      location("home-4", 3, "Location 4", "Location 4, Berlin, Germany", 52.5261, 13.4115),
+      location("home-5", 4, "Location 5", "Location 5, Berlin, Germany", 52.5216, 13.4098),
+      location("home-6", 5, "Location 6", "Location 6, Berlin, Germany", 52.5117, 13.4165),
+      location("home-7", 0, "Location 7", "Location 7, Berlin, Germany", 52.497, 13.401),
+      location("home-8", 1, "Location 8", "Location 8, Berlin, Germany", 52.4761, 13.2981),
+    ],
+    fixedDestinations: [
+      destination("poi-a", "Berlin Hauptbahnhof", "Berlin Hauptbahnhof, Europaplatz 1, 10557 Berlin, Germany", 52.5251, 13.3694, "fake-place-hbf"),
+      destination("poi-b", "Alexanderplatz 1", "Alexanderplatz 1, 10178 Berlin, Germany", 52.5219, 13.4132, "fake-place-alex-1"),
+    ],
+    dynamicGroups: [],
+    presets: defaultPresets(),
+    selectedPresetId: "preset-a",
+    selectedMode: "TRANSIT",
+    selectedDirection: "HOME_TO_DESTINATIONS",
+    highlightedHomeId: "home-1",
     view: "TABLE",
   };
 }
